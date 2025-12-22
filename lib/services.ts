@@ -304,7 +304,7 @@ export const services: Service[] = [
 
   // 9️⃣ FREE PRESCRIPTION DELIVERY
   {
-    slug: "Reliable-prescription-delivery",
+    slug: "free-prescription-delivery",
     title: "Reliable Prescription Delivery",
     description:
       "Reliable delivery routes across Cape Cod with options for urgent same-day needs.",
