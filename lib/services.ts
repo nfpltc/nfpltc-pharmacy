@@ -336,7 +336,7 @@ export const services: Service[] = [
       },
     ],
     bullets: [
-      "No-cost delivery with clear ETAs and confirmations",
+      "Reliable delivery with clear ETAs and confirmations",
       "Aligned with refill sync to reduce interruptions",
       "Rapid options for urgent clinical situations",
     ],
