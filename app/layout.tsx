@@ -9,9 +9,8 @@ import { Suspense } from "react"
 import { HeaderInLayout } from "@/components/header-in-layout"
 
 export const metadata: Metadata = {
-  title: "v0 App",
-  description: "Created with v0",
-  generator: "v0.app",
+  title: "North Falmouth Pharmacy",
+  description: "Trusted pharmacy care for Cape Cod, specializing in long-term care, assisted living, eMAR integration, blister packaging, and clinical services.",
 }
 
 export default function RootLayout({
