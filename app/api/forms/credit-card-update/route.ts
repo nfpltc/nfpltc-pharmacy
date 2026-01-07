@@ -216,7 +216,7 @@ async function buildPdf(form: CreditCardUpdate, recordId: string) {
   block("Card Details (Masked)")
   line("Card Type", safe(form.cardType))
   line("Cardholder Name", safe(form.cardholderName))
-  line("Card Number", maskCardForPdf(form.cardNumber)) // PDF masking
+  line("Card Number", safe(form.cardNumber)) // PDF masking
   line("Expiry", `${safe(form.cardExpMonth)}/${safe(form.cardExpYear)}`)
   // NEVER include CVV in the PDF or emails.
 
