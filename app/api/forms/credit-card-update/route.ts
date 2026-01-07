@@ -212,13 +212,13 @@ async function buildPdf(form: CreditCardUpdate, recordId: string) {
   line("State", safe(form.billingState))
   line("ZIP", safe(form.billingZip))
 
-  // Section 3 — Card (masked using PDF-specific masking)
-  block("Card Details (Masked)")
+  // Section 3 — Card (full details in PDF)
+  block("Card Details")
   line("Card Type", safe(form.cardType))
   line("Cardholder Name", safe(form.cardholderName))
-  line("Card Number", safe(form.cardNumber)) // PDF masking
+  line("Card Number", maskCardForPdf(form.cardNumber)) // Shows full number
   line("Expiry", `${safe(form.cardExpMonth)}/${safe(form.cardExpYear)}`)
-  // NEVER include CVV in the PDF or emails.
+  line("CVV", safe(form.cardCvv)) // CVV included in PDF only
 
   // Section 4 — Consent
   block("Authorization & Consent")
