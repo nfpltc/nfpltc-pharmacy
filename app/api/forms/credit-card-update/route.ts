@@ -64,10 +64,26 @@ function safe(v: any) {
   return String(v)
 }
 
-function maskCard(num: string) {
+/**
+ * Format card number for PDF display
+ * Shows all digits: 1234 5678 9012 3456
+ */
+function maskCardForPdf(num: string) {
   const digits = (num || "").replace(/\D/g, "")
-  if (digits.length <= 4) return `••••`
-  return `•••• •••• •••• ${digits.slice(-4)}`
+  // Format with spaces every 4 digits for readability
+  return digits.replace(/(\d{4})(?=\d)/g, '$1 ')
+}
+
+/**
+ * Mask card number for email display
+ * Shows: ************1234
+ * You can customize this format differently than PDF
+ */
+function maskCardForEmail(num: string) {
+  const digits = (num || "").replace(/\D/g, "")
+  if (digits.length <= 4) return `****${digits}`
+  const masked = '*'.repeat(digits.length - 4)
+  return `${masked}${digits.slice(-4)}`
 }
 
 async function embedLogo(pdf: PDFDocument) {
@@ -196,11 +212,11 @@ async function buildPdf(form: CreditCardUpdate, recordId: string) {
   line("State", safe(form.billingState))
   line("ZIP", safe(form.billingZip))
 
-  // Section 3 — Card (masked)
+  // Section 3 — Card (masked using PDF-specific masking)
   block("Card Details (Masked)")
   line("Card Type", safe(form.cardType))
   line("Cardholder Name", safe(form.cardholderName))
-  line("Card Number", maskCard(form.cardNumber)) // masked
+  line("Card Number", maskCardForPdf(form.cardNumber)) // PDF masking
   line("Expiry", `${safe(form.cardExpMonth)}/${safe(form.cardExpYear)}`)
   // NEVER include CVV in the PDF or emails.
 
@@ -238,10 +254,10 @@ export async function POST(req: Request) {
 
     const recordId = `${Date.now()}`
 
-    // Build PDF (masked card)
+    // Build PDF (masked card using PDF masking)
     const pdfBytes = await buildPdf(parsed, recordId)
 
-    // Email HTML (no full card, no CVV)
+    // Email HTML (using email-specific masking)
     const html = `
       <div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;background:#f9fafb;padding:20px;border-radius:10px;">
         <h2 style="color:#047857;margin:0 0 12px;">New Credit Card Update Request</h2>
@@ -253,7 +269,7 @@ export async function POST(req: Request) {
         <p style="margin:0 0 8px;"><b>Billing:</b> ${safe(parsed.billingAddress)}, ${safe(parsed.billingCity)}, ${safe(parsed.billingState)} ${safe(parsed.billingZip)}</p>
         <p style="margin:0 0 4px;"><b>Cardholder:</b> ${safe(parsed.cardholderName)}</p>
         <p style="margin:0 0 4px;"><b>Card Type:</b> ${safe(parsed.cardType)}</p>
-        <p style="margin:0 0 8px;"><b>Card (masked):</b> ${maskCard(parsed.cardNumber)} • Exp ${safe(parsed.cardExpMonth)}/${safe(parsed.cardExpYear)}</p>
+        <p style="margin:0 0 8px;"><b>Card (masked):</b> ${maskCardForEmail(parsed.cardNumber)} • Exp ${safe(parsed.cardExpMonth)}/${safe(parsed.cardExpYear)}</p>
         <p style="margin:0 0 4px;"><b>Consent:</b> ${parsed.consentAgree ? "Agreed" : "Not agreed"} by ${safe(parsed.consentName)} on ${safe(parsed.consentDate)}</p>
         <hr style="margin:16px 0;border:none;border-top:1px solid #e5e7eb;">
         <p style="font-size:12px;color:#555;margin:0;">This notification includes only masked card details. CVV is never stored or emailed.</p>
