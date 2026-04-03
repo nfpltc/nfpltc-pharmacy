@@ -98,6 +98,7 @@ export async function POST(req: NextRequest) {
       account_number: accountNumber,
       billing_period: billingPeriod,
       bill_date: new Date().toISOString().split("T")[0],
+      amount_due: 0,
       file_path: storagePath,
       file_name: fileName,
       updated_at: new Date().toISOString(),
