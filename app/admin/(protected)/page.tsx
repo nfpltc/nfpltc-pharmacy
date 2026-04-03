@@ -4,7 +4,7 @@ import { createServerClient } from "@supabase/ssr"
 import { createClient as createSbAdmin } from "@supabase/supabase-js"
 import {
   ShieldCheck, BadgeCheck, Users, FileText, Newspaper, LogOut,
-  Briefcase, Mail, CreditCard, Syringe, MessageSquare, Receipt, UserCheck, BookOpen, UsersRound
+  Briefcase, Mail, CreditCard, Syringe, MessageSquare, Receipt, UserCheck, BookOpen, UsersRound, FileStack
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -55,6 +55,7 @@ const sidebarLinks = [
   { href: "/admin/candidates", label: "Candidates", icon: Users },
   { href: "/admin/blogs", label: "Blog", icon: BookOpen },
   { href: "/admin/subscribers", label: "Subscribers", icon: UsersRound },
+  { href: "/admin/statements", label: "Statements", icon: FileStack },
 ]
 
 export const dynamic = "force-dynamic"
@@ -73,11 +74,10 @@ export default async function AdminHomePage() {
   const user = userRes?.user
   const displayName = user?.user_metadata?.full_name || user?.email?.split("@")?.[0] || "Admin"
 
-  // Counts using service role
   let counts: Record<string, number | null> = {
     enrollments: null, credit_cards: null, vaccines: null,
     contacts: null, bills: null, jobs: null,
-    candidates: null, blogs: null, subscribers: null,
+    candidates: null, blogs: null, subscribers: null, statements: null,
   }
 
   if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -97,6 +97,7 @@ export default async function AdminHomePage() {
         ["candidates", "job_applications"],
         ["blogs", "blog_posts"],
         ["subscribers", "newsletter_subscribers"],
+        ["statements", "customer_statements"],
       ]
       for (const [key, table] of tables) {
         try {
@@ -109,7 +110,6 @@ export default async function AdminHomePage() {
 
   return (
     <main className="min-h-screen bg-[#F7F5EF]">
-      {/* HERO */}
       <section
         className="relative isolate overflow-hidden"
         style={{
@@ -138,7 +138,6 @@ export default async function AdminHomePage() {
         </div>
       </section>
 
-      {/* IDENTITY STRIP */}
       <section>
         <div
           className="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between gap-4 rounded-xl border border-emerald-900/10 bg-white px-4 py-4 shadow-md md:rounded-2xl md:px-6"
@@ -164,9 +163,7 @@ export default async function AdminHomePage() {
         </div>
       </section>
 
-      {/* CONTENT */}
       <section className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-12 px-6 pt-10 pb-16 md:grid-cols-[260px_1fr]">
-        {/* Sidebar */}
         <aside className="space-y-3">
           <nav className="rounded-xl border border-emerald-900/10 bg-white p-2 shadow-sm">
             <ul className="space-y-1">
@@ -189,11 +186,9 @@ export default async function AdminHomePage() {
           </nav>
         </aside>
 
-        {/* Main */}
         <div>
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Overview</h2>
 
-          {/* Stats Grid */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <StatCard icon={UserCheck} label="Enrollments" value={counts.enrollments} href="/admin/enrollments" />
             <StatCard icon={CreditCard} label="Card Updates" value={counts.credit_cards} href="/admin/credit-cards" />
@@ -204,17 +199,17 @@ export default async function AdminHomePage() {
             <StatCard icon={Users} label="Candidates" value={counts.candidates} href="/admin/candidates" />
             <StatCard icon={BookOpen} label="Blog Posts" value={counts.blogs} href="/admin/blogs" />
             <StatCard icon={UsersRound} label="Subscribers" value={counts.subscribers} href="/admin/subscribers" />
+            <StatCard icon={FileStack} label="Statements" value={counts.statements} href="/admin/statements" />
           </div>
 
-          {/* Quick Links */}
           <div className="mt-10 rounded-xl border border-emerald-900/10 bg-white p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-gray-900">Quick Links</h2>
             <p className="mt-1 text-sm text-gray-600">Common admin tasks</p>
             <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <Link href="/admin/bills" className="group rounded-lg border border-emerald-900/10 p-4 hover:bg-emerald-50">
+              <Link href="/admin/statements" className="group rounded-lg border border-emerald-900/10 p-4 hover:bg-emerald-50">
                 <div className="flex items-center gap-3">
-                  <div className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-emerald-700/10 text-emerald-700"><Receipt className="h-5 w-5" /></div>
-                  <div><p className="font-medium text-gray-900">Manage Bills</p><p className="text-xs text-gray-600">Upload customer bills</p></div>
+                  <div className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-emerald-700/10 text-emerald-700"><FileStack className="h-5 w-5" /></div>
+                  <div><p className="font-medium text-gray-900">Statements</p><p className="text-xs text-gray-600">Bulk upload PDFs</p></div>
                 </div>
               </Link>
               <Link href="/admin/jobs" className="group rounded-lg border border-emerald-900/10 p-4 hover:bg-emerald-50">
