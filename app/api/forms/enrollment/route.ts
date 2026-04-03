@@ -4,6 +4,7 @@ import { Resend } from "resend"
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 import { readFile } from "fs/promises"
 import path from "path"
+import { createClient } from "@supabase/supabase-js"
 
 // Force Node runtime (needed for fs/path/pdf-lib)
 export const runtime = "nodejs"
@@ -67,6 +68,27 @@ export async function POST(req: Request) {
     if ("error" in sendResult && sendResult.error) {
       throw new Error(sendResult.error.message)
     }
+
+    // Save to Supabase so admin can view in dashboard
+    try {
+      if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
+        await sb.from("enrollment_submissions").insert({
+          first_name: form.firstName || null,
+          last_name: form.lastName || null,
+          email: form.email || null,
+          phone: form.phone || null,
+          dob: form.dob || null,
+          gender: form.gender || null,
+          address: form.homeAddress ? `${form.homeAddress}, ${form.city}, ${form.state} ${form.zip}` : null,
+          facility_name: form.facilityName || null,
+          physician_name: form.pcpName || null,
+          insurance_id: form.rxMemberId || null,
+          status: "new",
+          raw_data: form,
+        })
+      }
+    } catch (dbErr) { console.error("Supabase save error (enrollment):", dbErr) }
 
     return NextResponse.json({ ok: true, message: "Email sent successfully" })
   } catch (e: any) {
