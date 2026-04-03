@@ -8,7 +8,7 @@ interface Candidate {
   address: string; city: string; state: string; zip: string; linkedin: string; portfolio: string
   current_employer: string; current_title: string; years_experience: string; highest_education: string
   licenses: string; cover_letter: string; how_heard: string; start_date: string; salary_expectation: string
-  authorized_to_work: boolean; require_sponsorship: boolean; resume_url: string; resume_filename: string
+  authorized_to_work: boolean; require_sponsorship: boolean; resume_url: string; resume_filename: string; resume_signed_url: string | null
   status: string; notes: string; created_at: string
 }
 
@@ -132,7 +132,7 @@ export default function AdminCandidatesPage() {
                       <p>{c.authorized_to_work ? "✅ Authorized to work in US" : "❌ Not authorized"}</p>
                       <p>{c.require_sponsorship ? "⚠️ Requires sponsorship" : "✅ No sponsorship needed"}</p>
                       <p>How heard: {c.how_heard || "—"}</p>
-                      {c.resume_url && <a href={c.resume_url} target="_blank" className="inline-block mt-2 rounded-lg bg-emerald-100 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-200">📄 View Resume</a>}
+                      {(c.resume_signed_url || c.resume_url) && <a href={c.resume_signed_url || c.resume_url} target="_blank" rel="noopener noreferrer" className="inline-block mt-2 rounded-lg bg-emerald-100 px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-200">📄 View Resume</a>}
                     </div>
                   </div>
                 </div>
