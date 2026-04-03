@@ -14,7 +14,62 @@ function formatPeriod(p: string) {
   return new Date(parseInt(y), parseInt(m) - 1).toLocaleDateString("en-US", { year: "numeric", month: "long" })
 }
 
+function HIPAAModal({ onAccept }: { onAccept: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4" style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}>
+          <h2 className="text-lg font-semibold text-white">HIPAA Notice of Privacy Practices</h2>
+        </div>
+
+        {/* Content */}
+        <div className="max-h-[50vh] overflow-y-auto px-6 py-5 text-sm text-gray-700 space-y-3">
+          <p className="font-semibold text-gray-900 text-base">NORTH FALMOUTH PHARMACY</p>
+          <p className="font-semibold text-gray-900">NOTICE OF PRIVACY PRACTICES</p>
+
+          <p>This notice describes how medical information about you may be used and disclosed and how you can get access to this information. Please review it carefully. If you have any questions about this Notice, please contact our Privacy Officer.</p>
+
+          <p className="font-medium text-gray-900 mt-4">Our Duties</p>
+          <p>We are required by applicable federal and state law to maintain the privacy of your protected health information (PHI). We are also required to give you this Notice about our privacy practices, our legal duties, and your rights concerning your PHI.</p>
+
+          <p className="font-medium text-gray-900 mt-4">Uses and Disclosures of PHI</p>
+          <p>We may use and disclose your PHI for the following purposes: treatment, payment, and health care operations. We may also use or disclose your PHI for the following purposes without your authorization: as required by law, for public health activities, for health oversight activities, and for judicial and administrative proceedings.</p>
+
+          <p className="font-medium text-gray-900 mt-4">Your Rights</p>
+          <p>You have the right to request restrictions on certain uses and disclosures of your PHI. You have the right to receive confidential communications. You have the right to inspect and copy your PHI. You have the right to request amendments to your PHI. You have the right to receive an accounting of certain disclosures of your PHI. You have the right to a paper copy of this Notice.</p>
+
+          <p className="font-medium text-gray-900 mt-4">Statement Access</p>
+          <p>By clicking &quot;I Acknowledge and Agree&quot; below, you confirm that you are the account holder or an authorized representative, and you consent to accessing your billing statements electronically through this secure portal. You agree that you will not share access credentials or statement information with unauthorized individuals.</p>
+
+          <p className="font-medium text-gray-900 mt-4">Contact Information</p>
+          <p>North Falmouth Pharmacy<br />
+            Phone: (508) 564-4459<br />
+            Email: care@nfpltc.com</p>
+
+          <p className="text-xs text-gray-400 mt-4">Effective Date: April 14, 2003 | Revised: January 2026</p>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t px-6 py-4 bg-gray-50">
+          <button
+            onClick={onAccept}
+            className="w-full h-12 rounded-lg font-semibold text-white transition hover:opacity-90"
+            style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}
+          >
+            I Acknowledge and Agree
+          </button>
+          <p className="mt-3 text-center text-xs text-gray-400">
+            You must accept to view your statements
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ViewStatementsPage() {
+  const [accepted, setAccepted] = useState(false)
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
   const [account, setAccount] = useState("")
@@ -25,11 +80,25 @@ export default function ViewStatementsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
+  // Check if already accepted in this session
+  useEffect(() => {
+    if (typeof window !== "undefined" && sessionStorage.getItem("hipaa_accepted") === "true") {
+      setAccepted(true)
+    }
+  }, [])
+
   // Load available billing periods on mount
   useEffect(() => {
     fetch("/api/statements/search?periods_only=1")
       .then(r => r.json()).then(d => setPeriods(d.periods || [])).catch(() => {})
   }, [])
+
+  const handleAccept = () => {
+    setAccepted(true)
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("hipaa_accepted", "true")
+    }
+  }
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -51,15 +120,18 @@ export default function ViewStatementsPage() {
 
   return (
     <div className="min-h-screen bg-[#F7F5EF]">
+      {/* HIPAA Modal — shows on first visit */}
+      {!accepted && <HIPAAModal onAccept={handleAccept} />}
+
       {/* Hero */}
       <section className="relative isolate overflow-hidden" style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}>
         <div className="mx-auto max-w-4xl px-6 py-16 md:py-20 text-center">
-          <Link href="/forms" className="mb-4 inline-flex items-center gap-2 text-sm text-white/80 hover:text-white transition">
-            ← Back to Forms
+          <Link href="/" className="mb-4 inline-flex items-center gap-2 text-sm text-white/80 hover:text-white transition">
+            ← Back to Home
           </Link>
-          <h1 className="text-3xl font-semibold text-white md:text-4xl">My Statements</h1>
+          <h1 className="text-3xl font-semibold text-white md:text-4xl">Statements</h1>
           <p className="mx-auto mt-4 max-w-xl text-lg text-white/85">
-            View and download your monthly pharmacy statements. Enter your name below to search.
+            View and download your monthly pharmacy billing statements. Enter your name below to search.
           </p>
         </div>
       </section>
@@ -76,6 +148,12 @@ export default function ViewStatementsPage() {
               <p className="mt-1 text-sm text-emerald-700">Enter your first and last name as they appear on your account. You can also enter your account number for a more precise search. Select a billing month to filter results.</p>
             </div>
           </div>
+        </div>
+
+        {/* HIPAA badge */}
+        <div className="mb-6 flex items-center gap-2 rounded-lg bg-white border border-emerald-900/10 px-4 py-2.5 shadow-sm">
+          <svg className="h-5 w-5 text-emerald-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
+          <p className="text-xs text-gray-600"><span className="font-medium text-gray-800">HIPAA Protected</span> — Your health information is secured under HIPAA privacy regulations. Statements are accessed via time-limited secure links.</p>
         </div>
 
         {/* Search Form */}
@@ -183,7 +261,7 @@ export default function ViewStatementsPage() {
           <p className="text-sm text-gray-600 mb-4">If you can&apos;t find your statement or have billing questions, our team is here to help.</p>
           <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
             <a href="tel:5085644459" className="flex h-10 items-center gap-2 rounded-lg bg-emerald-700 px-6 text-sm font-medium text-white hover:bg-emerald-800 transition">
-              📞 (508) 564-4459
+              (508) 564-4459
             </a>
             <Link href="/contact" className="flex h-10 items-center gap-2 rounded-lg border border-emerald-700 px-6 text-sm font-medium text-emerald-700 hover:bg-emerald-50 transition">
               Contact Us
