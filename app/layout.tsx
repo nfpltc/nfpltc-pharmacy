@@ -12,6 +12,10 @@ export const metadata: Metadata = {
   title: "North Falmouth Pharmacy | Long Term Care Pharmacy",
   description: "North Falmouth Pharmacy — Licensed long-term care pharmacy serving Cape Cod since 2013. Blister packaging, medication management, and delivery services.",
   generator: "Next.js",
+  icons: {
+    icon: "/logo.svg",
+    apple: "/logo.svg",
+  },
 }
 
 export default function RootLayout({
