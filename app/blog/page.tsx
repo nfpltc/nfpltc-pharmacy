@@ -1,6 +1,8 @@
 import Link from "next/link"
 import Image from "next/image"
 import { createClient } from "@supabase/supabase-js"
+import { NewsSection } from "@/components/blog/news-section"
+import { NewsletterForm } from "@/components/blog/newsletter-form"
 
 export const metadata = {
   title: "Blog & News | North Falmouth Pharmacy",
@@ -44,7 +46,13 @@ export default async function BlogPage() {
         </div>
       </section>
 
+      {/* Live Pharmacy News from APIs */}
+      <NewsSection />
+
+      {/* Our Articles from Supabase */}
       <section className="mx-auto max-w-6xl px-6 py-12">
+        <h2 className="mb-8 text-2xl font-semibold text-gray-900">Our Articles</h2>
+
         {posts.length === 0 ? (
           <div className="rounded-xl border border-emerald-900/10 bg-white py-16 text-center shadow-sm">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
@@ -72,10 +80,8 @@ export default async function BlogPage() {
                     </div>
                     <div className="p-6">
                       <div className="mb-2 flex items-center gap-2 text-xs text-gray-500">
-                        <span className="font-medium text-emerald-600">{post.category}</span>
-                        <span>·</span>
-                        <span>{formatDate(post.published_at || post.created_at)}</span>
-                        <span>·</span>
+                        <span className="font-medium text-emerald-600">{post.category}</span><span>·</span>
+                        <span>{formatDate(post.published_at || post.created_at)}</span><span>·</span>
                         <span>{post.read_time || "3 min read"}</span>
                       </div>
                       <h2 className="mb-2 text-xl font-semibold text-gray-900 group-hover:text-emerald-700 transition">{post.title}</h2>
@@ -103,9 +109,7 @@ export default async function BlogPage() {
                     </div>
                     <div className="p-5">
                       <div className="mb-2 flex items-center gap-2 text-xs text-gray-500">
-                        <span className="font-medium text-emerald-600">{post.category}</span>
-                        <span>·</span>
-                        <span>{post.read_time || "3 min read"}</span>
+                        <span className="font-medium text-emerald-600">{post.category}</span><span>·</span><span>{post.read_time || "3 min read"}</span>
                       </div>
                       <h3 className="mb-2 text-lg font-semibold text-gray-900 group-hover:text-emerald-700 transition line-clamp-2">{post.title}</h3>
                       <p className="text-sm text-gray-600 line-clamp-2">{post.excerpt}</p>
@@ -117,14 +121,15 @@ export default async function BlogPage() {
             )}
           </>
         )}
+      </section>
 
-        {/* Newsletter CTA */}
-        <div className="mt-16 rounded-xl bg-emerald-700 p-8 text-center text-white shadow-lg md:p-12">
-          <h2 className="text-2xl font-semibold md:text-3xl">Stay Updated</h2>
-          <p className="mx-auto mt-3 max-w-xl text-emerald-100">Subscribe to our newsletter for the latest pharmacy insights, health tips, and resources for long-term care facilities.</p>
-          <div className="mx-auto mt-6 flex max-w-md gap-3">
-            <input type="email" placeholder="Enter your email" className="h-12 flex-1 rounded-lg bg-white/10 px-4 text-white placeholder:text-white/50 ring-1 ring-white/25 focus:outline-none focus:ring-white/50" />
-            <button className="h-12 rounded-lg bg-white px-6 font-medium text-emerald-700 hover:bg-emerald-50 transition">Subscribe</button>
+      {/* Newsletter CTA */}
+      <section className="bg-emerald-800 py-16 text-white md:py-20">
+        <div className="mx-auto max-w-4xl px-6 text-center">
+          <h2 className="text-3xl font-semibold md:text-4xl">Stay Updated</h2>
+          <p className="mx-auto mt-4 max-w-xl text-emerald-200">Subscribe to our newsletter for the latest pharmacy insights, health tips, and resources for long-term care facilities.</p>
+          <div className="mt-8">
+            <NewsletterForm source="blog" />
           </div>
         </div>
       </section>
