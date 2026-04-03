@@ -155,6 +155,7 @@ export function SiteHeader() {
                 ["Enrollment Form", "/forms/enrollment"],
                 ["Credit Card Update Form", "/forms/credit-card-update"],
                 ["Vaccine Consent Form", "/forms/vaccine-consent"],
+                ["My Statements", "/forms/statements"],
               ].map(([label, href]) => (
                 <Link
                   key={href}
@@ -250,6 +251,7 @@ export function SiteHeader() {
                 ["Vaccine Consent Form", "/forms/vaccine-consent"],
                 ["Enrollment Form", "/forms/enrollment"],
                 ["Credit Card Update Form", "/forms/credit-card-update"],
+                ["My Statements", "/forms/statements"],
               ].map(([label, href]) => (
                 <Link
                   key={href}
