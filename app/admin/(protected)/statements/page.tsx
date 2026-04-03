@@ -1,149 +1,292 @@
-'use client'
+"use client"
+import { useState, useEffect, useCallback, useRef } from "react"
+import Link from "next/link"
+import { ArrowLeft } from "lucide-react"
 
-import { useRef, useState } from 'react'
-
-type Row = {
-  id?: string
-  file?: File
-  fileName: string
-  size: number
-  account_number: string | null
-  first_name: string | null
-  dob: string | null
-  match: 'matched' | 'not_found'
-  profile_id: string | null
-  status: 'pending' | 'parsed' | 'matched' | 'saved' | 'error'
-  error: string | null
+interface Statement {
+  id: string; first_name: string; last_name: string; account_number: string
+  billing_period: string; file_path: string; file_name: string; file_url?: string
+  amount_due?: number; created_at: string
 }
 
-type ProcessResp = {
-  ok: boolean
-  row?: Omit<Row, 'status' | 'file' | 'error'> & { error: null }
-  error?: string
+// Parse filename: LASTNAME_FIRSTNAME_MIDDLENAME_ACCOUNT.pdf
+function parseFilename(name: string): { lastName: string; firstName: string; account: string } {
+  const base = name.replace(/\.pdf$/i, "")
+  const parts = base.split("_")
+  // Last part is account number (numeric)
+  // First part is last name
+  // Middle parts are first + middle name
+  if (parts.length < 3) return { lastName: parts[0] || "", firstName: parts[1] || "", account: "" }
+  const account = parts[parts.length - 1]
+  const lastName = parts[0]
+  const firstName = parts.slice(1, -1).join(" ")
+  return { lastName, firstName, account }
 }
 
-type SaveResp = { ok: boolean; error?: string }
+function formatPeriod(p: string) {
+  if (!p) return "—"
+  const [year, month] = p.split("-")
+  const date = new Date(parseInt(year), parseInt(month) - 1)
+  return date.toLocaleDateString("en-US", { year: "numeric", month: "long" })
+}
 
-export default function StatementsPage() {
-  const inputRef = useRef<HTMLInputElement | null>(null)
-  const [rows, setRows] = useState<Row[]>([])
-  const [busy, setBusy] = useState(false)
+export default function AdminStatementsPage() {
+  const [statements, setStatements] = useState<Statement[]>([])
+  const [periods, setPeriods] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [search, setSearch] = useState("")
+  const [filterPeriod, setFilterPeriod] = useState("all")
 
-  function pick() {
-    inputRef.current?.click()
+  // Upload state
+  const [billingPeriod, setBillingPeriod] = useState("")
+  const [files, setFiles] = useState<File[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [progress, setProgress] = useState({ current: 0, total: 0, name: "" })
+  const [uploadResults, setUploadResults] = useState({ success: 0, failed: 0, errors: [] as string[] })
+  const [dragActive, setDragActive] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { load() }, [filterPeriod, search])
+
+  const load = async () => {
+    try {
+      const params = new URLSearchParams()
+      if (filterPeriod !== "all") params.append("period", filterPeriod)
+      if (search) params.append("search", search)
+      const r = await fetch(`/api/admin/statements?${params}`)
+      const d = await r.json()
+      if (r.ok) { setStatements(d.statements || []); setPeriods(d.periods || []) }
+    } catch { setMsg({ ok: false, text: "Failed to load" }) }
+    finally { setLoading(false) }
   }
 
-  function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
-    const list = Array.from(e.target.files ?? [])
-    setRows(list.map(f => ({
-      file: f,
-      fileName: f.name,
-      size: f.size,
-      account_number: null,
-      first_name: null,
-      dob: null,
-      match: 'not_found',
-      profile_id: null,
-      status: 'pending',
-      error: null
-    })))
+  // Drag and drop handlers
+  const handleDrag = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation()
+    if (e.type === "dragenter" || e.type === "dragover") setDragActive(true)
+    else if (e.type === "dragleave") setDragActive(false)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation(); setDragActive(false)
+    const dropped = Array.from(e.dataTransfer.files).filter(f => f.type === "application/pdf" || f.name.endsWith(".pdf"))
+    if (dropped.length > 0) setFiles(prev => [...prev, ...dropped])
+    else setMsg({ ok: false, text: "Only PDF files are accepted" })
+  }, [])
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files || []).filter(f => f.type === "application/pdf" || f.name.endsWith(".pdf"))
+    setFiles(prev => [...prev, ...selected])
+    if (fileRef.current) fileRef.current.value = ""
   }
 
-  async function processAll() {
-    setBusy(true)
-    const next = [...rows]
-    for (let i = 0; i < next.length; i++) {
-      const r = next[i]
-      if (!r.file) continue
+  // Bulk upload
+  const handleUpload = async () => {
+    if (!billingPeriod) { setMsg({ ok: false, text: "Select a billing month" }); return }
+    if (files.length === 0) { setMsg({ ok: false, text: "Add PDF files first" }); return }
+
+    setUploading(true)
+    setUploadResults({ success: 0, failed: 0, errors: [] })
+    setProgress({ current: 0, total: files.length, name: "" })
+
+    let success = 0, failed = 0
+    const errors: string[] = []
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const parsed = parseFilename(file.name)
+      setProgress({ current: i + 1, total: files.length, name: `${parsed.lastName}, ${parsed.firstName}` })
+
       try {
         const fd = new FormData()
-        fd.append('file', r.file, r.file.name)
-        fd.append('fileName', r.file.name)
-        fd.append('size', String(r.file.size))
+        fd.append("file", file)
+        fd.append("billing_period", billingPeriod)
+        fd.append("file_name", file.name)
+        fd.append("first_name", parsed.firstName)
+        fd.append("last_name", parsed.lastName)
+        fd.append("account_number", parsed.account)
 
-        const res = await fetch('/api/statements/process', { method: 'POST', body: fd })
-        const j = (await res.json()) as ProcessResp
-
-        if (!res.ok || !j.ok || !j.row) {
-          next[i] = { ...r, status: 'error', error: j.error || `HTTP ${res.status}` }
-        } else {
-          next[i] = { ...r, ...j.row, status: j.row.match === 'matched' ? 'matched' : 'parsed', error: null }
-        }
-      } catch (e: any) {
-        next[i] = { ...r, status: 'error', error: e?.message ?? 'error' }
+        const r = await fetch("/api/admin/statements", { method: "POST", body: fd })
+        if (r.ok) success++
+        else { failed++; errors.push(`${file.name}: ${(await r.json()).error}`) }
+      } catch {
+        failed++; errors.push(`${file.name}: Network error`)
       }
-      setRows([...next])
     }
-    setBusy(false)
+
+    setUploadResults({ success, failed, errors })
+    setUploading(false)
+    setMsg({ ok: failed === 0, text: `Uploaded ${success} of ${files.length} statements${failed > 0 ? ` (${failed} failed)` : ""}` })
+    setFiles([])
+    load()
   }
 
-  async function saveMatched() {
-    setBusy(true)
-    const next = [...rows]
-    for (let i = 0; i < next.length; i++) {
-      const r = next[i]
-      if (r.status !== 'matched' || !r.file) continue
-      try {
-        const fd = new FormData()
-        fd.append('file', r.file, r.file.name)
-        fd.append('fileName', r.fileName)
-        if (r.account_number) fd.append('account_number', r.account_number)
-        if (r.first_name) fd.append('first_name', r.first_name)
-        if (r.dob) fd.append('dob', r.dob)
-        if (r.profile_id) fd.append('profile_id', r.profile_id)
-
-        const res = await fetch('/api/statements/save', { method: 'POST', body: fd })
-        const j = (await res.json()) as SaveResp
-        next[i] = j.ok ? { ...r, status: 'saved', error: null } : { ...r, status: 'error', error: j.error || `HTTP ${res.status}` }
-      } catch (e: any) {
-        next[i] = { ...r, status: 'error', error: e?.message ?? 'error' }
-      }
-      setRows([...next])
-    }
-    setBusy(false)
+  const handleDeletePeriod = async (period: string) => {
+    const count = statements.filter(s => s.billing_period === period).length
+    if (!confirm(`Delete ALL ${count} statements for ${formatPeriod(period)}? This removes files from storage too.`)) return
+    const r = await fetch(`/api/admin/statements?period=${period}`, { method: "DELETE" })
+    if (r.ok) { setMsg({ ok: true, text: `Deleted ${count} statements` }); load() }
   }
+
+  const handleDeleteOne = async (id: string) => {
+    if (!confirm("Delete this statement?")) return
+    const r = await fetch(`/api/admin/statements?id=${id}`, { method: "DELETE" })
+    if (r.ok) { setMsg({ ok: true, text: "Deleted" }); load() }
+  }
+
+  const pct = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0
 
   return (
-    <main className="p-6">
-      <div className="rounded-xl border p-4">
-        <div className="flex items-center gap-3">
-          <button onClick={pick} className="rounded border px-3 py-2">Pick PDF(s)</button>
-          <button onClick={processAll} disabled={busy || rows.length === 0} className="rounded border px-3 py-2">Process</button>
-          <button onClick={saveMatched} disabled={busy || !rows.some(r => r.status === 'matched')} className="rounded bg-emerald-600 text-white px-3 py-2">
-            Save All (matched)
-          </button>
-          <span className="text-sm text-gray-600">{rows.length} file(s) selected</span>
+    <main className="min-h-screen bg-[#F7F5EF]">
+      <section className="relative isolate overflow-hidden" style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)", padding: "48px 0 56px" }}>
+        <div className="mx-auto w-full max-w-6xl px-6">
+          <Link href="/admin" className="mb-4 inline-flex items-center gap-1.5 text-sm text-white/80 hover:text-white"><ArrowLeft className="h-4 w-4" /> Dashboard</Link>
+          <h1 className="text-2xl font-semibold text-white md:text-3xl">Customer Statements</h1>
+          <p className="mt-2 text-white/90">{statements.length} statements · {periods.length} billing periods</p>
         </div>
+      </section>
 
-        <input ref={inputRef} type="file" accept="application/pdf" multiple className="hidden" onChange={onFiles} />
+      <section className="mx-auto w-full max-w-6xl px-6 py-8">
+        {msg && <div className={`mb-6 flex items-center justify-between rounded-lg border p-4 text-sm ${msg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}><span>{msg.text}</span><button onClick={() => setMsg(null)}>×</button></div>}
 
-        <div className="mt-4 overflow-x-auto">
-          <table className="min-w-[800px] w-full text-sm">
-            <thead>
-              <tr className="text-left border-b">
-                <th className="py-2">File</th>
-                <th className="py-2">Acct</th>
-                <th className="py-2">First</th>
-                <th className="py-2">DOB</th>
-                <th className="py-2">Status</th>
-                <th className="py-2">Error</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, idx) => (
-                <tr key={idx} className="border-b">
-                  <td className="py-2">{r.fileName}</td>
-                  <td className="py-2">{r.account_number ?? '—'}</td>
-                  <td className="py-2">{r.first_name ?? '—'}</td>
-                  <td className="py-2">{r.dob ?? '—'}</td>
-                  <td className="py-2">{r.status}</td>
-                  <td className="py-2 text-red-600">{r.error ?? ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Upload Section */}
+          <div className="lg:col-span-1">
+            <div className="sticky top-6 rounded-xl border border-emerald-900/10 bg-white p-6 shadow-sm">
+              <h2 className="mb-4 text-lg font-semibold">Bulk Upload Statements</h2>
+
+              {/* Billing Period */}
+              <div className="mb-4">
+                <label className="mb-1 block text-xs font-medium">Billing Month *</label>
+                <input type="month" value={billingPeriod} onChange={e => setBillingPeriod(e.target.value)} className="w-full h-11 rounded-lg border px-3 text-sm focus:border-emerald-500 focus:outline-none" />
+                <p className="mt-1 text-xs text-gray-400">e.g. March 2026</p>
+              </div>
+
+              {/* Drag & Drop Zone */}
+              <div
+                onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
+                onClick={() => fileRef.current?.click()}
+                className={`relative cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition ${dragActive ? "border-emerald-400 bg-emerald-50" : files.length > 0 ? "border-emerald-300 bg-emerald-50" : "border-gray-300 hover:border-gray-400 hover:bg-gray-50"}`}
+              >
+                <input ref={fileRef} type="file" accept=".pdf" multiple onChange={handleFileSelect} className="hidden" />
+                {files.length > 0 ? (
+                  <div>
+                    <p className="text-3xl mb-2">📄</p>
+                    <p className="font-medium text-emerald-700">{files.length} PDFs ready</p>
+                    <p className="text-xs text-emerald-600 mt-1">{(files.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB total</p>
+                    <button onClick={(e) => { e.stopPropagation(); setFiles([]) }} className="mt-2 text-xs text-red-500 hover:text-red-700">Clear all</button>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-3xl mb-2">📂</p>
+                    <p className="font-medium text-gray-700">Drag & Drop PDFs here</p>
+                    <p className="text-xs text-gray-500 mt-1">or click to browse (800+ files OK)</p>
+                    <p className="text-[10px] text-gray-400 mt-2">Filename format: LASTNAME_FIRSTNAME_ACCOUNT.pdf</p>
+                  </div>
+                )}
+              </div>
+
+              {/* File Preview */}
+              {files.length > 0 && files.length <= 20 && (
+                <div className="mt-3 max-h-32 overflow-y-auto rounded-lg bg-gray-50 p-2 text-xs">
+                  {files.map((f, i) => {
+                    const p = parseFilename(f.name)
+                    return <div key={i} className="flex items-center justify-between py-0.5"><span className="truncate text-gray-600">{p.lastName}, {p.firstName}</span><span className="text-gray-400">{p.account}</span></div>
+                  })}
+                </div>
+              )}
+              {files.length > 20 && <p className="mt-2 text-xs text-gray-500">Showing count only for {files.length} files</p>}
+
+              {/* Progress Bar */}
+              {uploading && (
+                <div className="mt-4">
+                  <div className="mb-1 flex items-center justify-between text-xs">
+                    <span className="font-medium text-emerald-700">{progress.current} / {progress.total}</span>
+                    <span className="text-gray-500">{pct}%</span>
+                  </div>
+                  <div className="h-3 w-full overflow-hidden rounded-full bg-gray-200">
+                    <div className="h-full rounded-full bg-emerald-600 transition-all duration-300" style={{ width: `${pct}%` }} />
+                  </div>
+                  <p className="mt-1 truncate text-xs text-gray-500">Uploading: {progress.name}</p>
+                </div>
+              )}
+
+              {/* Upload Results */}
+              {!uploading && uploadResults.success > 0 && (
+                <div className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm">
+                  <p className="font-medium text-emerald-700">✅ {uploadResults.success} uploaded</p>
+                  {uploadResults.failed > 0 && <p className="text-red-600">❌ {uploadResults.failed} failed</p>}
+                </div>
+              )}
+
+              {/* Upload Button */}
+              <button onClick={handleUpload} disabled={uploading || files.length === 0 || !billingPeriod}
+                className="mt-4 w-full h-11 rounded-lg bg-emerald-700 font-medium text-white hover:bg-emerald-800 disabled:opacity-50 flex items-center justify-center gap-2">
+                {uploading ? `Uploading ${progress.current}/${progress.total}...` : `Upload ${files.length} Statement${files.length !== 1 ? "s" : ""}`}
+              </button>
+            </div>
+          </div>
+
+          {/* Statements List */}
+          <div className="lg:col-span-2">
+            {/* Stats */}
+            <div className="mb-4 grid grid-cols-3 gap-4">
+              <div className="rounded-xl border border-emerald-900/10 bg-white p-4 shadow-sm">
+                <p className="text-2xl font-semibold text-gray-900">{statements.length}</p>
+                <p className="text-sm text-gray-500">Total Statements</p>
+              </div>
+              <div className="rounded-xl border border-emerald-900/10 bg-white p-4 shadow-sm">
+                <p className="text-2xl font-semibold text-blue-600">{periods.length}</p>
+                <p className="text-sm text-gray-500">Billing Periods</p>
+              </div>
+              <div className="rounded-xl border border-emerald-900/10 bg-white p-4 shadow-sm">
+                <p className="text-2xl font-semibold text-emerald-600">{filterPeriod !== "all" ? statements.length : "—"}</p>
+                <p className="text-sm text-gray-500">Current Filter</p>
+              </div>
+            </div>
+
+            {/* Search & Filter */}
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+              <input type="text" placeholder="Search by name or account..." value={search} onChange={e => setSearch(e.target.value)} className="flex-1 rounded-lg border border-gray-200 bg-white py-2.5 px-4 text-sm focus:border-emerald-500 focus:outline-none" />
+              <select value={filterPeriod} onChange={e => setFilterPeriod(e.target.value)} className="h-11 rounded-lg border border-gray-200 bg-white px-3 text-sm focus:border-emerald-500 focus:outline-none">
+                <option value="all">All Periods</option>
+                {periods.map(p => <option key={p} value={p}>{formatPeriod(p)}</option>)}
+              </select>
+              {filterPeriod !== "all" && (
+                <button onClick={() => handleDeletePeriod(filterPeriod)} className="h-11 rounded-lg border border-red-200 px-4 text-sm font-medium text-red-600 hover:bg-red-50">Delete {formatPeriod(filterPeriod)}</button>
+              )}
+            </div>
+
+            {/* Table */}
+            {loading ? <div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" /></div>
+            : statements.length === 0 ? <div className="rounded-xl border bg-white py-16 text-center"><h3 className="text-lg font-medium mb-2">No statements found</h3><p className="text-gray-500">{search ? "Try a different search" : "Upload your first batch"}</p></div>
+            : <div className="overflow-hidden rounded-xl border border-emerald-900/10 bg-white shadow-sm">
+                <div className="overflow-x-auto"><table className="w-full">
+                  <thead className="border-b bg-gray-50"><tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Customer</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Account</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Period</th>
+                    <th className="px-4 py-3 text-center text-xs font-medium uppercase text-gray-500">PDF</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">Actions</th>
+                  </tr></thead>
+                  <tbody className="divide-y">{statements.map(s => (
+                    <tr key={s.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3"><p className="font-medium text-gray-900">{s.last_name}, {s.first_name}</p></td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{s.account_number || "—"}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{formatPeriod(s.billing_period)}</td>
+                      <td className="px-4 py-3 text-center">
+                        {s.file_url ? <a href={s.file_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-100">📄 View</a> : <span className="text-xs text-gray-400">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button onClick={() => handleDeleteOne(s.id)} className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600" title="Delete">🗑️</button>
+                      </td>
+                    </tr>))}</tbody>
+                </table></div>
+              </div>}
+          </div>
         </div>
-      </div>
+      </section>
     </main>
   )
 }
