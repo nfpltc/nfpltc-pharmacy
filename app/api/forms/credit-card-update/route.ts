@@ -5,6 +5,7 @@ import { Resend } from "resend"
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 import { readFile } from "fs/promises"
 import path from "path"
+import { createClient } from "@supabase/supabase-js"
 
 // Ensure Node runtime for fs/path/pdf-lib
 export const runtime = "nodejs"
@@ -302,6 +303,27 @@ export async function POST(req: Request) {
     if ("error" in emailRes && emailRes.error) {
       throw new Error(emailRes.error.message)
     }
+
+    // Save to Supabase so admin can view in dashboard
+    try {
+      if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
+        await sb.from("credit_card_submissions").insert({
+          first_name: parsed.firstName,
+          last_name: parsed.lastName,
+          email: parsed.email || null,
+          phone: parsed.phone || null,
+          dob: parsed.dob,
+          account_number: parsed.accountNumber,
+          card_type: parsed.cardType,
+          card_last_four: (parsed.cardNumber || "").slice(-4),
+          cardholder_name: parsed.cardholderName,
+          billing_address: `${parsed.billingAddress}, ${parsed.billingCity}, ${parsed.billingState} ${parsed.billingZip}`,
+          status: "new",
+          raw_data: parsed,
+        })
+      }
+    } catch (dbErr) { console.error("Supabase save error (credit card):", dbErr) }
 
     // Respond
     return NextResponse.json({ success: true, message: "Form submitted successfully" })
