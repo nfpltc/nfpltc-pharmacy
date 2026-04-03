@@ -246,6 +246,7 @@ export default function VaccineConsentPage() {
     control,
     formState: { errors },
     watch,
+    setValue,
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -409,32 +410,14 @@ export default function VaccineConsentPage() {
                             const current = new Set(vaccinesSel)
                             if (checked) current.add(v)
                             else current.delete(v)
-                            // Manually set via hidden input trick
-                            const hidden = document.getElementById("vaccinesRequestedHidden") as HTMLInputElement | null
-                            if (hidden) hidden.value = JSON.stringify(Array.from(current))
+                            setValue("vaccinesRequested", Array.from(current), { shouldValidate: true })
                           }}
+                          className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
                         />
                         <span>{v}</span>
                       </label>
                     ))}
                   </div>
-                  {/* Hidden field to sync checkboxes back into RHF */}
-                  <input
-                    id="vaccinesRequestedHidden"
-                    type="hidden"
-                    {...register("vaccinesRequested", {
-                      setValueAs: (v) => {
-                        if (typeof v === "string") {
-                          try {
-                            const parsed = JSON.parse(v)
-                            if (Array.isArray(parsed)) return parsed
-                          } catch {}
-                        }
-                        return vaccinesSel
-                      },
-                    })}
-                    defaultValue={JSON.stringify(vaccinesSel)}
-                  />
                 </div>
 
                 {vaccinesSel.includes("Other") && (
