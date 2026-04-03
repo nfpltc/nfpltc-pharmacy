@@ -23,7 +23,7 @@ export function SiteHeader() {
   // Primary nav
   const nav = [
     { href: "/about", label: "About Us" },
-    { href: "/pill-finder", label: "Pill Finder" },
+    { href: "/forms/statements", label: "Statements" },
     { href: "/contact", label: "Contact" },
   ]
 
@@ -155,7 +155,6 @@ export function SiteHeader() {
                 ["Enrollment Form", "/forms/enrollment"],
                 ["Credit Card Update Form", "/forms/credit-card-update"],
                 ["Vaccine Consent Form", "/forms/vaccine-consent"],
-                ["Statements", "/forms/statements"],
               ].map(([label, href]) => (
                 <Link
                   key={href}
@@ -234,11 +233,11 @@ export function SiteHeader() {
             </div>
 
             <Link
-              href="/pill-finder"
+              href="/forms/statements"
               onClick={handleNavigate}
               className="rounded-md px-3 py-2 text-sm hover:bg-muted"
             >
-              Pill Finder
+              Statements
             </Link>
 
             {/* Forms */}
@@ -251,7 +250,6 @@ export function SiteHeader() {
                 ["Vaccine Consent Form", "/forms/vaccine-consent"],
                 ["Enrollment Form", "/forms/enrollment"],
                 ["Credit Card Update Form", "/forms/credit-card-update"],
-                ["Statements", "/forms/statements"],
               ].map(([label, href]) => (
                 <Link
                   key={href}
