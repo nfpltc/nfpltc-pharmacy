@@ -7,7 +7,6 @@ import {
   Phone,
   MapPin,
   Linkedin,
-  Facebook,
   Instagram,
   Clock,
   Printer,
@@ -98,33 +97,23 @@ export function SiteFooter() {
             {/* ✅ Social Links */}
             <div className="mt-4 flex gap-4 text-white/90">
               <a
-                href="https://www.linkedin.com/"
-                aria-label="LinkedIn"
-                className="hover:text-white transition-colors"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Linkedin className="h-5 w-5" />
-              </a>
-
-              <a
-                href="https://www.facebook.com/"
-                aria-label="Facebook"
-                className="hover:text-white transition-colors"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Facebook className="h-5 w-5" />
-              </a>
-
-              <a
-                href="https://www.instagram.com/"
+                href="https://www.instagram.com/nfpltc/"
                 aria-label="Instagram"
                 className="hover:text-white transition-colors"
                 target="_blank"
                 rel="noopener noreferrer"
               >
                 <Instagram className="h-5 w-5" />
+              </a>
+
+              <a
+                href="https://www.linkedin.com/company/North%20Falmouth%20Pharmacy/"
+                aria-label="LinkedIn"
+                className="hover:text-white transition-colors"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Linkedin className="h-5 w-5" />
               </a>
             </div>
           </div>
@@ -236,7 +225,7 @@ export function SiteFooter() {
                 </Link>
               </li>
               <li>
-                <a href="/contact" className="hover:text-white transition-colors">
+                <a href="#contact" className="hover:text-white transition-colors">
                   Contact
                 </a>
               </li>
@@ -272,7 +261,7 @@ export function SiteFooter() {
             </p>
             <p>
               <a
-                href="https://www.linkedin.com/"
+                href="https://www.linkedin.com/company/North%20Falmouth%20Pharmacy/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-white transition-colors"
