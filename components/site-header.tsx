@@ -24,7 +24,6 @@ export function SiteHeader() {
   const nav = [
     { href: "/about", label: "About Us" },
     { href: "/pill-finder", label: "Pill Finder" },
-    { href: "/blog", label: "Blog" },
     { href: "/contact", label: "Contact" },
   ]
 
@@ -263,13 +262,6 @@ export function SiteHeader() {
               ))}
             </div>
 
-            <Link
-              href="/blog"
-              onClick={handleNavigate}
-              className="rounded-md px-3 py-2 text-sm hover:bg-muted"
-            >
-              Blog
-            </Link>
             <Link
               href="/contact"
               onClick={handleNavigate}
