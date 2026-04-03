@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js"
 import { NewsSection } from "@/components/blog/news-section"
 import { NewsletterForm } from "@/components/blog/newsletter-form"
 
+export const revalidate = 60 // Refresh cached page every 60 seconds
+
 export const metadata = {
   title: "Blog & News | North Falmouth Pharmacy",
   description: "Health tips, pharmacy news, and resources for long-term care facilities from North Falmouth Pharmacy.",
