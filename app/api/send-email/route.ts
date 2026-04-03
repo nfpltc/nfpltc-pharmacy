@@ -1,5 +1,6 @@
 import { Resend } from "resend"
 import { NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -20,6 +21,21 @@ export async function POST(req: Request) {
         <p style="white-space: pre-line">${message}</p>
       `,
     })
+
+    // Save to Supabase so admin can view in dashboard
+    try {
+      if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
+        await sb.from("contact_submissions").insert({
+          first_name: firstName || null,
+          last_name: lastName || null,
+          email: email || null,
+          phone: phone || null,
+          message: message || null,
+          status: "new",
+        })
+      }
+    } catch (dbErr) { console.error("Supabase save error (contact):", dbErr) }
 
     return NextResponse.json({ success: true })
   } catch (error) {
