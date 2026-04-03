@@ -23,7 +23,6 @@ export function SiteHeader() {
   // Primary nav
   const nav = [
     { href: "/about", label: "About Us" },
-    { href: "/forms/statements", label: "Statements" },
     { href: "/contact", label: "Contact" },
   ]
 
@@ -124,6 +123,19 @@ export function SiteHeader() {
             </div>
           </div>
 
+          {/* Statements */}
+          <Link
+            href="/forms/statements"
+            onClick={handleNavigate}
+            className={`text-sm transition-colors ${
+              pathname === "/forms/statements"
+                ? "text-foreground font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Statements
+          </Link>
+
           {/* Forms Dropdown */}
           <div
             className="relative"
@@ -214,6 +226,14 @@ export function SiteHeader() {
               About Us
             </Link>
 
+            <Link
+              href="/contact"
+              onClick={handleNavigate}
+              className="rounded-md px-3 py-2 text-sm hover:bg-muted"
+            >
+              Contact
+            </Link>
+
             {/* Services */}
             <div className="rounded-md border p-2">
               <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">
@@ -261,14 +281,6 @@ export function SiteHeader() {
                 </Link>
               ))}
             </div>
-
-            <Link
-              href="/contact"
-              onClick={handleNavigate}
-              className="rounded-md px-3 py-2 text-sm hover:bg-muted"
-            >
-              Contact
-            </Link>
 
             {/* Call Now */}
             <a href="tel:+15085644459" className="mt-2" onClick={handleNavigate}>
