@@ -45,7 +45,7 @@ function HIPAAModal({ onAccept }: { onAccept: () => void }) {
           <p className="font-medium text-gray-900 mt-4">Contact Information</p>
           <p>North Falmouth Pharmacy<br />
             Phone: (508) 564-4459<br />
-            Email: care@nfpltc.com</p>
+            Email: wecare@nfpltc.com</p>
 
           <p className="text-xs text-gray-400 mt-4">Effective Date: April 14, 2003 | Revised: January 2026</p>
         </div>
@@ -102,7 +102,7 @@ export default function ViewStatementsPage() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!firstName && !lastName) { setError("Please enter your first or last name."); return }
+    if (!firstName || !lastName || !account) { setError("Please enter your first name, last name, and account number."); return }
     setError(""); setLoading(true); setSearched(true)
     try {
       const params = new URLSearchParams()
@@ -145,7 +145,7 @@ export default function ViewStatementsPage() {
             </div>
             <div>
               <h3 className="font-medium text-emerald-800">How to find your statements</h3>
-              <p className="mt-1 text-sm text-emerald-700">Enter your first and last name as they appear on your account. You can also enter your account number for a more precise search. Select a billing month to filter results.</p>
+              <p className="mt-1 text-sm text-emerald-700">Enter your first name, last name, and account number exactly as they appear on your account. Select a billing month to filter results.</p>
             </div>
           </div>
         </div>
@@ -172,7 +172,7 @@ export default function ViewStatementsPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">Account Number <span className="text-gray-400">(optional)</span></label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Account Number *</label>
                 <input type="text" value={account} onChange={e => setAccount(e.target.value)} placeholder="e.g. 101338" className="h-12 w-full rounded-lg border border-gray-200 px-4 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
               </div>
               <div>
