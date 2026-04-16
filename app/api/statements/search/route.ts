@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
     const account = searchParams.get("account")?.trim()
     const period = searchParams.get("period")
 
-    if (!firstName && !lastName) {
+    if (!firstName || !lastName || !account) {
       // Allow fetching just periods without name search
       const periodsOnly = searchParams.get("periods_only")
       if (periodsOnly) {
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
         const uniquePeriods = [...new Set((periods || []).map((p: any) => p.billing_period))].filter(Boolean)
         return NextResponse.json({ statements: [], periods: uniquePeriods })
       }
-      return NextResponse.json({ error: "First or last name required" }, { status: 400 })
+      return NextResponse.json({ error: "First name, last name, and account number are required" }, { status: 400 })
     }
 
     const sb = createClient(
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 
     if (lastName) query = query.ilike("last_name", `%${lastName}%`)
     if (firstName) query = query.ilike("first_name", `%${firstName}%`)
-    if (account) query = query.ilike("account_number", `%${account}%`)
+    if (account) query = query.eq("account_number", account)
     if (period && period !== "all") query = query.eq("billing_period", period)
 
     const { data, error } = await query
