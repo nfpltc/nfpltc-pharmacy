@@ -90,21 +90,47 @@ export async function POST(req: Request) {
     try {
       if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
         const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
-        const selectedVaccines = form?.vaccines ? Object.keys(form.vaccines).filter((k: string) => form.vaccines[k]).join(", ") : ""
-        await sb.from("vaccine_submissions").insert({
+
+        // Build a one-line address for display
+        const addressOneLine = [form.address, form.city, form.state, form.zip]
+          .filter(Boolean).join(", ") || null
+
+        // Which vaccines were selected (checkbox group)
+        const selectedVaccines = form?.vaccines
+          ? Object.keys(form.vaccines).filter((k: string) => form.vaccines[k]).join(", ")
+          : ""
+
+        // Collect all screening question answers into a single jsonb blob
+        const screeningKeys = [
+          "currentlyIll", "allergiesLatex", "allergiesMedicationFoodVaccine",
+          "historySevereAllergicReaction", "neurologicalDisorderGBS",
+          "bleedingDisorderAnticoagulant",
+        ]
+        const screening: Record<string, any> = {}
+        for (const k of screeningKeys) {
+          if (form[k] !== undefined) screening[k] = form[k]
+        }
+
+        const { error: insertErr } = await sb.from("vaccine_submissions").insert({
           first_name: form.firstName || null,
           last_name: form.lastName || null,
-          email: form.email || null,
-          phone: form.phone || null,
           dob: form.dob || null,
-          gender: form.gender || null,
-          physician_name: form.physicianName || null,
-          vaccines_selected: selectedVaccines,
+          phone: form.phone || null,
+          email: form.email || null,
+          address: addressOneLine,
+          city: form.city || null,
+          state: form.state || null,
+          zip: form.zip || null,
+          vaccine_type: selectedVaccines || null,
+          screening_responses: Object.keys(screening).length ? screening : null,
           consent_name: form.consentName || null,
           consent_date: form.consentDate || null,
           status: "new",
-          raw_data: form,
+          full_form_date: form,
         })
+        if (insertErr) {
+          console.error("Supabase insert error (vaccine):", insertErr.message, insertErr.details)
+        }
       }
     } catch (dbErr) { console.error("Supabase save error (vaccine):", dbErr) }
 
