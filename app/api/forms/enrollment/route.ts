@@ -69,24 +69,95 @@ export async function POST(req: Request) {
       throw new Error(sendResult.error.message)
     }
 
-    // Save to Supabase so admin can view in dashboard
+    // Save to Supabase so admin can view in dashboard.
+    // Note: full credit card number + CVV are intentionally NOT saved.
+    // SSN is truncated to last 4 (table column is ssn_last4).
     try {
       if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
         const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
-        await sb.from("enrollment_submissions").insert({
+
+        // Defensive: take only last 4 digits of SSN even if more was submitted
+        const ssnLast4 = String(form.ssn || "").replace(/\D/g, "").slice(-4) || null
+
+        // Build card_exp as "MM/YY" if both parts present (do not store full number or CVV)
+        const cardExp = form.cardExpMonth && form.cardExpYear
+          ? `${String(form.cardExpMonth).padStart(2, "0")}/${String(form.cardExpYear).slice(-2)}`
+          : null
+        const cardLast4 = String(form.cardNumber || "").replace(/\D/g, "").slice(-4) || null
+
+        const { error: insertErr } = await sb.from("enrollment_submissions").insert({
+          // Start info
+          todays_date: form.todaysDate || null,
+          start_date: form.startDate || null,
+          start_time: form.startTime ? `${form.startTime} ${form.startTimePeriod || ""}`.trim() : null,
+
+          // Submitter (if your form collects it; safe to send null)
+          submitter_relation: form.submitterRelation || null,
+          submitter_first_name: form.submitterFirstName || null,
+          submitter_last_name: form.submitterLastName || null,
+          submitter_phone: form.submitterPhone || null,
+          submitter_email: form.submitterEmail || null,
+
+          // Resident
           first_name: form.firstName || null,
           last_name: form.lastName || null,
-          email: form.email || null,
-          phone: form.phone || null,
+          middle_initial: form.middleInitial || null,
           dob: form.dob || null,
+          ssn_last4: ssnLast4,
           gender: form.gender || null,
-          address: form.homeAddress ? `${form.homeAddress}, ${form.city}, ${form.state} ${form.zip}` : null,
+          home_address: form.homeAddress || null,
+          city: form.city || null,
+          state: form.state || null,
+          zip: form.zip || null,
+          allergies: form.allergies || null,
+
+          // Facility
           facility_name: form.facilityName || null,
-          physician_name: form.pcpName || null,
-          insurance_id: form.rxMemberId || null,
+          room_number: form.roomNumber || null,
+          facility_address: form.facilityAddress || null,
+          facility_city: form.facilityCity || null,
+          facility_state: form.facilityState || null,
+          facility_zip: form.facilityZip || null,
+          moving_from: form.movingFrom || null,
+          hospital_rehab_name: form.hospitalRehabName || null,
+          hospital_rehab_phone: form.hospitalRehabPhone || null,
+
+          // PCP
+          pcp_name: form.pcpName || null,
+          pcp_specialty: form.pcpSpecialty || null,
+          pcp_address: form.pcpAddress || null,
+          pcp_phone: form.pcpPhone || null,
+          pcp_fax: form.pcpFax || null,
+
+          // Insurance
+          rx_member_id: form.rxMemberId || null,
+          rx_grp: form.rxGrp || null,
+          rx_bin: form.rxBin || null,
+          rx_pcn: form.rxPcn || null,
+
+          // Card (safe fields only — NO full number, NO CVV)
+          card_type: form.cardType || null,
+          card_last4: cardLast4,
+          card_exp: cardExp,
+          cardholder_name: form.cardholderName || null,
+          billing_address: form.billingAddress || null,
+          billing_city: form.billingCity || null,
+          billing_state: form.billingState || null,
+          billing_zip: form.billingZip || null,
+
+          // Additional contact
+          additional_contact_name: form.additionalContactName || null,
+          additional_contact_phone: form.additionalContactPhone || null,
+
+          // Authorization
+          auth_name: form.authName || null,
+          auth_date: form.authDate || null,
+
           status: "new",
-          raw_data: form,
         })
+        if (insertErr) {
+          console.error("Supabase insert error (enrollment):", insertErr.message, insertErr.details)
+        }
       }
     } catch (dbErr) { console.error("Supabase save error (enrollment):", dbErr) }
 
