@@ -304,24 +304,40 @@ export async function POST(req: Request) {
       throw new Error(emailRes.error.message)
     }
 
-    // Save to Supabase so admin can view in dashboard
+    // Save to Supabase — intentionally EXCLUDES full card number, CVV, and any
+    // unredacted blob. Email delivery (above) carries the full details for
+    // pharmacy staff to key into their PCI-compliant POS/processor manually.
     try {
       if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
         const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
-        await sb.from("credit_card_submissions").insert({
-          first_name: parsed.firstName,
-          last_name: parsed.lastName,
-          email: parsed.email || null,
+
+        const cardLast4 = String(parsed.cardNumber || "").replace(/\D/g, "").slice(-4) || null
+        const cardExp = parsed.cardExpMonth && parsed.cardExpYear
+          ? `${String(parsed.cardExpMonth).padStart(2, "0")}/${String(parsed.cardExpYear).slice(-2)}`
+          : null
+
+        const { error: insertErr } = await sb.from("credit_card_submissions").insert({
+          first_name: parsed.firstName || null,
+          last_name: parsed.lastName || null,
+          dob: parsed.dob || null,
+          account_number: parsed.accountNumber || null,
           phone: parsed.phone || null,
-          dob: parsed.dob,
-          account_number: parsed.accountNumber,
-          card_type: parsed.cardType,
-          card_last_four: (parsed.cardNumber || "").slice(-4),
-          cardholder_name: parsed.cardholderName,
-          billing_address: `${parsed.billingAddress}, ${parsed.billingCity}, ${parsed.billingState} ${parsed.billingZip}`,
+          email: parsed.email || null,
+          billing_address: parsed.billingAddress || null,
+          billing_city: parsed.billingCity || null,
+          billing_state: parsed.billingState || null,
+          billing_zip: parsed.billingZip || null,
+          card_type: parsed.cardType || null,
+          card_last4: cardLast4,
+          card_exp: cardExp,
+          cardholder_name: parsed.cardholderName || null,
+          consent_name: parsed.consentName || null,
+          consent_date: parsed.consentDate || null,
           status: "new",
-          raw_data: parsed,
         })
+        if (insertErr) {
+          console.error("Supabase insert error (credit card):", insertErr.message, insertErr.details)
+        }
       }
     } catch (dbErr) { console.error("Supabase save error (credit card):", dbErr) }
 
