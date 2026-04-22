@@ -35,7 +35,8 @@ export default function AdminStatementsPage() {
   const [periods, setPeriods] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
-  const [search, setSearch] = useState("")
+  const [searchInput, setSearchInput] = useState("")      // what user is typing
+  const [search, setSearch] = useState("")                 // what's actually being searched
   const [filterPeriod, setFilterPeriod] = useState("all")
 
   // Upload state
@@ -46,6 +47,13 @@ export default function AdminStatementsPage() {
   const [uploadResults, setUploadResults] = useState({ success: 0, failed: 0, errors: [] as string[] })
   const [dragActive, setDragActive] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Debounce the search input: wait 400ms after typing stops before actually searching.
+  // Saves hammering the API with 3400-row fetches on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 400)
+    return () => clearTimeout(t)
+  }, [searchInput])
 
   useEffect(() => { load() }, [filterPeriod, search])
 
@@ -241,26 +249,114 @@ export default function AdminStatementsPage() {
                 <p className="text-sm text-gray-500">Billing Periods</p>
               </div>
               <div className="rounded-xl border border-emerald-900/10 bg-white p-4 shadow-sm">
-                <p className="text-2xl font-semibold text-emerald-600">{filterPeriod !== "all" ? statements.length : "—"}</p>
-                <p className="text-sm text-gray-500">Current Filter</p>
+                <p className="text-2xl font-semibold text-emerald-600">{statements.length}</p>
+                <p className="text-sm text-gray-500">
+                  {(search || filterPeriod !== "all") ? "Currently Shown" : "No Filter Applied"}
+                </p>
               </div>
             </div>
 
             {/* Search & Filter */}
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row">
-              <input type="text" placeholder="Search by name or account..." value={search} onChange={e => setSearch(e.target.value)} className="flex-1 rounded-lg border border-gray-200 bg-white py-2.5 px-4 text-sm focus:border-emerald-500 focus:outline-none" />
-              <select value={filterPeriod} onChange={e => setFilterPeriod(e.target.value)} className="h-11 rounded-lg border border-gray-200 bg-white px-3 text-sm focus:border-emerald-500 focus:outline-none">
-                <option value="all">All Periods</option>
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+              {/* Search box with icon, submit on Enter, and inline clear */}
+              <form
+                onSubmit={(e) => { e.preventDefault(); setSearch(searchInput.trim()) }}
+                className="relative flex-1"
+              >
+                <svg className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 10a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search by name or account number..."
+                  value={searchInput}
+                  onChange={e => setSearchInput(e.target.value)}
+                  className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-9 pr-24 text-sm focus:border-emerald-500 focus:outline-none"
+                />
+                {searchInput && (
+                  <button
+                    type="button"
+                    onClick={() => { setSearchInput(""); setSearch("") }}
+                    className="absolute right-20 top-1/2 -translate-y-1/2 rounded px-2 py-0.5 text-xs text-gray-500 hover:bg-gray-100"
+                    title="Clear"
+                  >
+                    ✕
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-800"
+                >
+                  Search
+                </button>
+              </form>
+
+              {/* Period filter */}
+              <select
+                value={filterPeriod}
+                onChange={e => setFilterPeriod(e.target.value)}
+                className="h-11 rounded-lg border border-gray-200 bg-white px-3 text-sm focus:border-emerald-500 focus:outline-none"
+              >
+                <option value="all">All Periods ({periods.length})</option>
                 {periods.map(p => <option key={p} value={p}>{formatPeriod(p)}</option>)}
               </select>
+
+              {/* Clear filter button — only visible when a period is selected */}
               {filterPeriod !== "all" && (
-                <button onClick={() => handleDeletePeriod(filterPeriod)} className="h-11 rounded-lg border border-red-200 px-4 text-sm font-medium text-red-600 hover:bg-red-50">Delete {formatPeriod(filterPeriod)}</button>
+                <button
+                  onClick={() => setFilterPeriod("all")}
+                  className="h-11 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700 hover:bg-gray-50"
+                  title="Show all periods"
+                >
+                  Clear filter
+                </button>
+              )}
+
+              {filterPeriod !== "all" && (
+                <button onClick={() => handleDeletePeriod(filterPeriod)} className="h-11 rounded-lg border border-red-200 px-4 text-sm font-medium text-red-600 hover:bg-red-50">
+                  Delete {formatPeriod(filterPeriod)}
+                </button>
               )}
             </div>
 
+            {/* Active filters pill row */}
+            {(search || filterPeriod !== "all") && (
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-gray-500">Showing:</span>
+                {search && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-800 ring-1 ring-emerald-200">
+                    Search: "{search}"
+                    <button onClick={() => { setSearchInput(""); setSearch("") }} className="ml-1 text-emerald-700 hover:text-emerald-900">✕</button>
+                  </span>
+                )}
+                {filterPeriod !== "all" && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-blue-800 ring-1 ring-blue-200">
+                    Period: {formatPeriod(filterPeriod)}
+                    <button onClick={() => setFilterPeriod("all")} className="ml-1 text-blue-700 hover:text-blue-900">✕</button>
+                  </span>
+                )}
+                <span className="text-gray-500">· {statements.length} result{statements.length === 1 ? "" : "s"}</span>
+              </div>
+            )}
+
             {/* Table */}
             {loading ? <div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" /></div>
-            : statements.length === 0 ? <div className="rounded-xl border bg-white py-16 text-center"><h3 className="text-lg font-medium mb-2">No statements found</h3><p className="text-gray-500">{search ? "Try a different search" : "Upload your first batch"}</p></div>
+            : statements.length === 0 ? <div className="rounded-xl border bg-white py-16 text-center">
+                <h3 className="text-lg font-medium mb-2">No statements found</h3>
+                <p className="text-gray-500">
+                  {(search || filterPeriod !== "all")
+                    ? "Try clearing your search or filter above."
+                    : "Upload your first batch to get started."}
+                </p>
+                {(search || filterPeriod !== "all") && (
+                  <button
+                    onClick={() => { setSearchInput(""); setSearch(""); setFilterPeriod("all") }}
+                    className="mt-4 inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
+                  >
+                    Clear all filters
+                  </button>
+                )}
+              </div>
             : <div className="overflow-hidden rounded-xl border border-emerald-900/10 bg-white shadow-sm">
                 <div className="overflow-x-auto"><table className="w-full">
                   <thead className="border-b bg-gray-50"><tr>
