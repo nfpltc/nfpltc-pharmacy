@@ -17,35 +17,77 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get("search")
     const sb = admin()
 
-    let query = sb.from("customer_statements").select("*").order("last_name", { ascending: true })
+    // --- 1) Fetch ALL matching rows in batches of 1000 (Supabase/PostgREST caps
+    //        each request at 1000 rows by default, so we paginate with .range()). ---
+    const PAGE_SIZE = 1000
+    const allRows: any[] = []
+    let from = 0
+    // Safety ceiling so a runaway query can't loop forever
+    const MAX_ROWS = 200_000
 
-    if (period && period !== "all") query = query.eq("billing_period", period)
-    if (search) {
-      query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,account_number.ilike.%${search}%`)
+    while (from < MAX_ROWS) {
+      let q = sb
+        .from("customer_statements")
+        .select("*")
+        .order("last_name", { ascending: true })
+        .order("first_name", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1)
+
+      if (period && period !== "all") q = q.eq("billing_period", period)
+      if (search) {
+        q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,account_number.ilike.%${search}%`)
+      }
+
+      const { data: pageRows, error: pageErr } = await q
+      if (pageErr) return NextResponse.json({ error: pageErr.message }, { status: 500 })
+      if (!pageRows || pageRows.length === 0) break
+
+      allRows.push(...pageRows)
+      if (pageRows.length < PAGE_SIZE) break  // last page
+      from += PAGE_SIZE
     }
 
-    const { data, error } = await query
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // --- 2) Get distinct billing periods (paginated the same way). Needed so
+    //        the dropdown shows every month that has statements, not just the
+    //        newest month that happens to fill the first 1000 rows. ---
+    const periodsSet = new Set<string>()
+    let pFrom = 0
+    while (pFrom < MAX_ROWS) {
+      const { data: pageP, error: pErr } = await sb
+        .from("customer_statements")
+        .select("billing_period")
+        .order("billing_period", { ascending: false })
+        .range(pFrom, pFrom + PAGE_SIZE - 1)
+      if (pErr) break
+      if (!pageP || pageP.length === 0) break
+      for (const row of pageP) if (row.billing_period) periodsSet.add(row.billing_period)
+      if (pageP.length < PAGE_SIZE) break
+      pFrom += PAGE_SIZE
+    }
+    // Sort newest-first (YYYY-MM strings compare correctly lexicographically)
+    const uniquePeriods = Array.from(periodsSet).sort().reverse()
 
-    // Get unique billing periods for the filter dropdown
-    const { data: periods } = await sb
-      .from("customer_statements")
-      .select("billing_period")
-      .order("billing_period", { ascending: false })
-    const uniquePeriods = [...new Set((periods || []).map((p: any) => p.billing_period))].filter(Boolean)
-
-    // Generate signed URLs for file access
-    const statements = await Promise.all(
-      (data || []).map(async (s: any) => {
-        if (s.file_path) {
-          try {
-            const { data: signed } = await sb.storage.from("customer-statements").createSignedUrl(s.file_path, 3600)
-            s.file_url = signed?.signedUrl || null
-          } catch { s.file_url = null }
-        }
-        return s
-      })
-    )
+    // --- 3) Sign file URLs (1 hr). Throttle concurrency so we don't overwhelm
+    //        Supabase Storage if the list is huge. ---
+    const CONCURRENCY = 25
+    const statements: any[] = []
+    for (let i = 0; i < allRows.length; i += CONCURRENCY) {
+      const batch = allRows.slice(i, i + CONCURRENCY)
+      const signed = await Promise.all(
+        batch.map(async (s: any) => {
+          if (s.file_path) {
+            try {
+              const { data: sig } = await sb.storage
+                .from("customer-statements")
+                .createSignedUrl(s.file_path, 3600)
+              s.file_url = sig?.signedUrl || null
+            } catch { s.file_url = null }
+          }
+          return s
+        })
+      )
+      statements.push(...signed)
+    }
 
     return NextResponse.json({ statements, periods: uniquePeriods })
   } catch (err: any) {
