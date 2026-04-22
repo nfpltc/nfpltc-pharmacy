@@ -18,11 +18,22 @@ export async function GET(req: NextRequest) {
           process.env.SUPABASE_SERVICE_ROLE_KEY!,
           { auth: { persistSession: false, autoRefreshToken: false } }
         )
-        const { data: periods } = await sb
-          .from("customer_statements")
-          .select("billing_period")
-          .order("billing_period", { ascending: false })
-        const uniquePeriods = [...new Set((periods || []).map((p: any) => p.billing_period))].filter(Boolean)
+        // Paginate to get ALL periods — Supabase caps each call at 1000 rows.
+        const periodsSet = new Set<string>()
+        const PAGE_SIZE = 1000
+        let pFrom = 0
+        while (pFrom < 200_000) {
+          const { data: pageP } = await sb
+            .from("customer_statements")
+            .select("billing_period")
+            .order("billing_period", { ascending: false })
+            .range(pFrom, pFrom + PAGE_SIZE - 1)
+          if (!pageP || pageP.length === 0) break
+          for (const row of pageP) if (row.billing_period) periodsSet.add(row.billing_period)
+          if (pageP.length < PAGE_SIZE) break
+          pFrom += PAGE_SIZE
+        }
+        const uniquePeriods = Array.from(periodsSet).sort().reverse()
         return NextResponse.json({ statements: [], periods: uniquePeriods })
       }
       return NextResponse.json({ error: "First name, last name, and account number are required" }, { status: 400 })
@@ -62,12 +73,22 @@ export async function GET(req: NextRequest) {
       })
     )
 
-    // Get available periods for the dropdown
-    const { data: periods } = await sb
-      .from("customer_statements")
-      .select("billing_period")
-      .order("billing_period", { ascending: false })
-    const uniquePeriods = [...new Set((periods || []).map((p: any) => p.billing_period))].filter(Boolean)
+    // Get available periods for the dropdown (paginated to get ALL months, not just newest 1000 rows)
+    const periodsSet = new Set<string>()
+    const P_SIZE = 1000
+    let pFrom2 = 0
+    while (pFrom2 < 200_000) {
+      const { data: pageP } = await sb
+        .from("customer_statements")
+        .select("billing_period")
+        .order("billing_period", { ascending: false })
+        .range(pFrom2, pFrom2 + P_SIZE - 1)
+      if (!pageP || pageP.length === 0) break
+      for (const row of pageP) if (row.billing_period) periodsSet.add(row.billing_period)
+      if (pageP.length < P_SIZE) break
+      pFrom2 += P_SIZE
+    }
+    const uniquePeriods = Array.from(periodsSet).sort().reverse()
 
     return NextResponse.json({ statements: results, periods: uniquePeriods })
   } catch (err: any) {
