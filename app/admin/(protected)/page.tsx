@@ -55,6 +55,7 @@ const sidebarLinks = [
   { href: "/admin/candidates", label: "Candidates", icon: Users },
   { href: "/admin/blogs", label: "Blog", icon: BookOpen },
   { href: "/admin/subscribers", label: "Subscribers", icon: UsersRound },
+  { href: "/admin/customers", label: "Customers", icon: UsersRound },
   { href: "/admin/statements", label: "Statements", icon: FileStack },
 ]
 
