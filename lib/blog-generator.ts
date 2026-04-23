@@ -134,7 +134,10 @@ export async function generatePost(topic: BlogTopic): Promise<GeneratedPost> {
         messages,
         temperature: 0.7 + (attempt - 1) * 0.1,  // 0.7 → 0.8 → 0.9 on retries
         max_tokens: 2500,
-        response_format: { type: "json_object" },
+        // Note: intentionally NOT using response_format: { type: "json_object" }.
+        // Groq's strict JSON mode rejects responses with markdown code fences,
+        // which Llama sometimes adds even when told not to. We parse manually
+        // below, stripping any ```json fences Llama might include.
       }),
     })
 
@@ -146,8 +149,12 @@ export async function generatePost(topic: BlogTopic): Promise<GeneratedPost> {
     const raw = data?.choices?.[0]?.message?.content
     if (!raw) { lastError = "Groq returned empty content"; continue }
 
-    try { parsed = JSON.parse(raw) }
-    catch { lastError = "Groq returned non-JSON content"; continue }
+    try {
+      parsed = parseJsonFromLlm(raw)
+    } catch (e: any) {
+      lastError = `Groq returned non-JSON content: ${e.message || "parse failed"}`
+      continue
+    }
 
     const { title, content } = parsed
     if (!title || !content) { lastError = "Generated post missing title or content"; continue }
@@ -244,6 +251,26 @@ async function fetchUnsplashImage(query: string): Promise<{ thumbUrl: string; fu
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────
+// Parses JSON that may be wrapped in markdown fences or preceded/followed by
+// stray text. Llama-3.3 on Groq often adds ```json ... ``` fences despite
+// instructions not to, which would break strict JSON.parse.
+function parseJsonFromLlm(raw: string): any {
+  let s = String(raw).trim()
+
+  // Strip leading/trailing markdown fences like ```json ... ```
+  s = s.replace(/^```(?:json|javascript|js)?\s*\n?/i, "")
+  s = s.replace(/\n?```\s*$/i, "")
+
+  // If there's still junk around the JSON object, grab the outermost { ... }
+  const firstBrace = s.indexOf("{")
+  const lastBrace  = s.lastIndexOf("}")
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    s = s.slice(firstBrace, lastBrace + 1)
+  }
+
+  return JSON.parse(s)
+}
+
 function slugify(s: string): string {
   return String(s).toLowerCase().trim()
     .replace(/[^a-z0-9\s-]/g, "")
