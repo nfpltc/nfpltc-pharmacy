@@ -1,277 +1,167 @@
-import { NextRequest, NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
-import { Resend } from "resend"
-import {
-  renderStatementEmail,
-  formatBillingPeriodLabel,
-  signUnsubscribeToken,
-} from "@/lib/statement-email"
+// Email template for monthly statement notifications.
+// Returns both an HTML version (branded, inlined CSS for email clients)
+// and a plain-text fallback (required for good deliverability).
 
-export const runtime = "nodejs"
-export const maxDuration = 60
-
-function admin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } }
-  )
+export interface StatementEmailParams {
+  firstName: string
+  lastName: string
+  billingPeriodLabel: string     // e.g. "March 2026"
+  statementsUrl: string          // where to click to view (the public search page)
+  unsubscribeUrl: string         // one-click unsubscribe link
+  pharmacyPhone?: string         // optional; default filled in
+  pharmacyName?: string
 }
 
-// Base URL for the public statements link
-function publicBaseUrl(req: NextRequest): string {
-  const env = process.env.NEXT_PUBLIC_SITE_URL
-  if (env) return env.replace(/\/$/, "")
-  const proto = req.headers.get("x-forwarded-proto") || "https"
-  const host  = req.headers.get("host") || "www.nfpltc.com"
-  return `${proto}://${host}`
+// HIPAA note: this email intentionally does NOT contain account number,
+// amount due, drug names, or any other PHI. Only the customer's first
+// name (which they themselves gave us) and that "a statement is ready".
+
+export function renderStatementEmail(p: StatementEmailParams) {
+  const pharmacyName = p.pharmacyName || "North Falmouth Pharmacy"
+  const phone = p.pharmacyPhone || "(508) 564-4459"
+  const friendly = (p.firstName || "").trim()
+    .split(/\s+/)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ")
+
+  const subject = `Your ${p.billingPeriodLabel} statement from ${pharmacyName} is ready`
+
+  const text = [
+    `Hi ${friendly},`,
+    ``,
+    `Your ${p.billingPeriodLabel} statement from ${pharmacyName} is ready to view.`,
+    ``,
+    `View your statement: ${p.statementsUrl}`,
+    ``,
+    `When you click the link above, you'll be asked for your first name, last name, and account number (the same information shown on your past statements).`,
+    ``,
+    `Questions? Call us at ${phone} — we're happy to help.`,
+    ``,
+    `— ${pharmacyName}`,
+    ``,
+    `---`,
+    `You received this because you are subscribed to monthly statement notifications.`,
+    `To unsubscribe: ${p.unsubscribeUrl}`,
+  ].join("\n")
+
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>${escapeHtml(subject)}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#F7F5EF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#1f2937;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#F7F5EF;padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:560px;max-width:100%;background:#ffffff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08);overflow:hidden;">
+
+            <!-- Brand bar -->
+            <tr>
+              <td style="background:linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%);padding:24px 28px;color:#ffffff;">
+                <div style="font-size:20px;font-weight:700;letter-spacing:0.2px;">${escapeHtml(pharmacyName)}</div>
+                <div style="font-size:12px;opacity:0.9;margin-top:2px;">Long Term Care Pharmacy</div>
+              </td>
+            </tr>
+
+            <!-- Body -->
+            <tr>
+              <td style="padding:32px 28px 24px;">
+                <p style="margin:0 0 16px;font-size:16px;line-height:1.5;">Hi ${escapeHtml(friendly) || "there"},</p>
+                <p style="margin:0 0 20px;font-size:16px;line-height:1.55;">
+                  Your <strong>${escapeHtml(p.billingPeriodLabel)}</strong> statement from ${escapeHtml(pharmacyName)} is ready to view.
+                </p>
+
+                <!-- CTA button -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px;">
+                  <tr>
+                    <td style="border-radius:8px;background:#0B7C79;">
+                      <a href="${escapeAttr(p.statementsUrl)}"
+                         style="display:inline-block;padding:13px 22px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">
+                        View Your Statement &nbsp;&rarr;
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0 0 18px;font-size:14px;line-height:1.55;color:#4b5563;">
+                  When you click the button, you'll be asked for your first name, last name, and account number
+                  (the same information shown on your past statements).
+                </p>
+
+                <div style="margin-top:24px;padding-top:20px;border-top:1px solid #e5e7eb;font-size:14px;line-height:1.55;color:#4b5563;">
+                  <p style="margin:0 0 6px;">Questions? Call <strong style="color:#0B7C79;">${escapeHtml(phone)}</strong> — we're happy to help.</p>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="background:#f9fafb;padding:16px 28px;font-size:12px;line-height:1.5;color:#6b7280;">
+                <div style="margin-bottom:8px;"><strong style="color:#374151;">${escapeHtml(pharmacyName)}</strong></div>
+                <div>You received this because you are subscribed to monthly statement notifications.</div>
+                <div style="margin-top:4px;">
+                  <a href="${escapeAttr(p.unsubscribeUrl)}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a>
+                </div>
+              </td>
+            </tr>
+          </table>
+
+          <div style="margin-top:12px;font-size:11px;color:#9ca3af;">
+            This email contains no prescription, diagnosis, or payment information.
+          </div>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`
+
+  return { subject, html, text }
 }
 
-// Secret for unsubscribe tokens: reuse service role key (already secret, deploy-scoped)
-function unsubSecret() {
-  return (process.env.UNSUBSCRIBE_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "") as string
+function escapeHtml(s: string): string {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
 }
 
-// =============================================================================
-// GET: preview counts for a given billing period
-// Query:
-//   ?period=2026-03                 -> preview (no sending)
-//   &include_missing_statement=1    -> include customers with no stmt for that period
-// =============================================================================
-export async function GET(req: NextRequest) {
+function escapeAttr(s: string): string {
+  // URLs — allow characters that are safe in href values but strip anything weird
+  return String(s || "").replace(/"/g, "%22").replace(/'/g, "%27").replace(/</g, "%3C").replace(/>/g, "%3E")
+}
+
+// Format a YYYY-MM billing period string like "2026-03" into "March 2026"
+export function formatBillingPeriodLabel(period: string): string {
+  if (!period) return ""
+  const [y, m] = period.split("-")
+  if (!y || !m) return period
+  const d = new Date(parseInt(y), parseInt(m) - 1, 1)
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "long" })
+}
+
+// Build an unsubscribe token (HMAC-signed account#) so users can one-click
+// unsubscribe without logging in. The token is included in the URL.
+import crypto from "node:crypto"
+
+export function signUnsubscribeToken(accountNumber: string, secret: string): string {
+  const h = crypto.createHmac("sha256", secret).update(accountNumber).digest("hex").slice(0, 32)
+  return `${Buffer.from(accountNumber).toString("base64url")}.${h}`
+}
+
+export function verifyUnsubscribeToken(token: string, secret: string): string | null {
   try {
-    const { searchParams } = new URL(req.url)
-    const period = (searchParams.get("period") || "").trim()
-    const includeMissing = searchParams.get("include_missing_statement") === "1"
-    if (!/^\d{4}-\d{2}$/.test(period)) {
-      return NextResponse.json({ error: "period must be YYYY-MM (e.g. 2026-03)" }, { status: 400 })
-    }
-
-    const sb = admin()
-
-    // 1) All customers (paginated past 1000-row cap)
-    const customers = await fetchAll(sb, "customers", "account_number, first_name, last_name, email, email_opt_in")
-
-    // 2) Statements that exist for the period (just the account_numbers)
-    const stmts = await fetchAll(sb, "customer_statements", "account_number", q => q.eq("billing_period", period))
-    const acctsWithStatement = new Set<string>((stmts as any[]).map(s => s.account_number))
-
-    // 3) Already-sent log for that period
-    const sentLog = await fetchAll(
-      sb, "statement_email_log",
-      "account_number, status",
-      q => q.eq("billing_period", period).in("status", ["queued", "sent", "delivered"])
-    )
-    const alreadySent = new Set<string>((sentLog as any[]).map(l => l.account_number))
-
-    // Bucket each customer
-    let no_email = 0, opted_out = 0, already_sent = 0, missing_statement = 0, will_send = 0
-    const eligible: any[] = []
-    for (const c of customers as any[]) {
-      if (!c.email || !c.email.trim())           { no_email++; continue }
-      if (c.email_opt_in === false)              { opted_out++; continue }
-      if (alreadySent.has(c.account_number))     { already_sent++; continue }
-      if (!acctsWithStatement.has(c.account_number)) {
-        missing_statement++
-        if (!includeMissing) continue
-      }
-      will_send++
-      eligible.push({
-        account_number: c.account_number,
-        first_name: c.first_name,
-        last_name: c.last_name,
-        email: c.email,
-        has_statement: acctsWithStatement.has(c.account_number),
-      })
-    }
-
-    return NextResponse.json({
-      period,
-      period_label: formatBillingPeriodLabel(period),
-      totals: {
-        total_customers:   customers.length,
-        statements_in_period: acctsWithStatement.size,
-        no_email, opted_out, already_sent, missing_statement, will_send,
-      },
-      eligible_sample: eligible.slice(0, 5),
-    })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    const [b64, sig] = token.split(".")
+    if (!b64 || !sig) return null
+    const acct = Buffer.from(b64, "base64url").toString("utf8")
+    const expected = crypto.createHmac("sha256", secret).update(acct).digest("hex").slice(0, 32)
+    if (sig.length !== expected.length) return null
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null
+    return acct
+  } catch {
+    return null
   }
-}
-
-// =============================================================================
-// POST: actually send emails. Two modes:
-//   { mode: "bulk",   period: "2026-03", include_missing_statement: boolean }
-//   { mode: "single", period: "2026-03", account_number: "123456" }
-//
-// Synchronous send (no background queue) — fine for <= a few hundred. For
-// very large batches Resend's rate limits will slow us naturally.
-// =============================================================================
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json()
-    const mode = body.mode as "bulk" | "single"
-    const period = String(body.period || "").trim()
-    if (!/^\d{4}-\d{2}$/.test(period)) {
-      return NextResponse.json({ error: "period must be YYYY-MM" }, { status: 400 })
-    }
-    if (mode !== "bulk" && mode !== "single") {
-      return NextResponse.json({ error: "mode must be 'bulk' or 'single'" }, { status: 400 })
-    }
-
-    const RESEND_API_KEY = process.env.RESEND_API_KEY
-    const FROM_EMAIL     = process.env.FROM_EMAIL
-    if (!RESEND_API_KEY || !FROM_EMAIL) {
-      return NextResponse.json({ error: "RESEND_API_KEY or FROM_EMAIL not configured" }, { status: 500 })
-    }
-
-    const sb = admin()
-    const resend = new Resend(RESEND_API_KEY)
-
-    // Build recipient list
-    let recipients: any[] = []
-
-    if (mode === "single") {
-      const acct = String(body.account_number || "").trim()
-      if (!acct) return NextResponse.json({ error: "account_number required for single mode" }, { status: 400 })
-
-      const { data: c, error } = await sb.from("customers")
-        .select("account_number, first_name, last_name, email, email_opt_in")
-        .eq("account_number", acct).maybeSingle()
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-      if (!c) return NextResponse.json({ error: "Customer not found" }, { status: 404 })
-      if (!c.email)                return NextResponse.json({ error: "Customer has no email on file" }, { status: 400 })
-      if (c.email_opt_in === false) return NextResponse.json({ error: "Customer has opted out" }, { status: 400 })
-
-      recipients = [c]
-    } else {
-      // Bulk
-      const includeMissing = body.include_missing_statement === true
-
-      const customers = await fetchAll(sb, "customers", "account_number, first_name, last_name, email, email_opt_in")
-      const stmts = await fetchAll(sb, "customer_statements", "account_number", q => q.eq("billing_period", period))
-      const acctsWithStatement = new Set<string>((stmts as any[]).map(s => s.account_number))
-      const sentLog = await fetchAll(
-        sb, "statement_email_log",
-        "account_number",
-        q => q.eq("billing_period", period).in("status", ["queued", "sent", "delivered"])
-      )
-      const alreadySent = new Set<string>((sentLog as any[]).map(l => l.account_number))
-
-      for (const c of customers as any[]) {
-        if (!c.email) continue
-        if (c.email_opt_in === false) continue
-        if (alreadySent.has(c.account_number)) continue
-        if (!acctsWithStatement.has(c.account_number) && !includeMissing) continue
-        recipients.push(c)
-      }
-    }
-
-    if (recipients.length === 0) {
-      return NextResponse.json({ sent: 0, failed: 0, failures: [], message: "No eligible recipients" })
-    }
-
-    // Send (with small concurrency to stay within Resend's rate limits)
-    const base = publicBaseUrl(req)
-    const statementsUrl = `${base}/forms/statements`
-    const label = formatBillingPeriodLabel(period)
-    const secret = unsubSecret()
-
-    let sent = 0
-    const failures: Array<{ account: string; email: string; error: string }> = []
-    const CONCURRENCY = 5
-
-    async function sendOne(c: any) {
-      const unsubscribeUrl = `${base}/unsubscribe?t=${signUnsubscribeToken(c.account_number, secret)}`
-      const { subject, html, text } = renderStatementEmail({
-        firstName: c.first_name,
-        lastName: c.last_name,
-        billingPeriodLabel: label,
-        statementsUrl,
-        unsubscribeUrl,
-      })
-
-      // First: insert a "queued" log row so we have a record even if send fails.
-      // Uses UNIQUE constraint on (account, period, active-status) to skip dups.
-      const { data: logRow, error: logErr } = await sb.from("statement_email_log").insert({
-        account_number: c.account_number,
-        billing_period: period,
-        email_to: c.email,
-        status: "queued",
-      }).select("id").single()
-
-      if (logErr) {
-        // 23505 = unique violation = already sent, skip silently
-        if ((logErr as any).code !== "23505") {
-          failures.push({ account: c.account_number, email: c.email, error: `log insert: ${logErr.message}` })
-        }
-        return
-      }
-
-      // Send via Resend
-      try {
-        const r = await resend.emails.send({
-          from: FROM_EMAIL!,
-          to: c.email,
-          subject,
-          html,
-          text,
-          headers: {
-            "List-Unsubscribe": `<${unsubscribeUrl}>`,
-            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-          },
-        })
-        if ((r as any).error) throw new Error((r as any).error.message || "resend error")
-        const messageId = (r as any).data?.id || null
-
-        await sb.from("statement_email_log").update({
-          status: "sent",
-          resend_message_id: messageId,
-          sent_at: new Date().toISOString(),
-        }).eq("id", logRow.id)
-        sent++
-      } catch (e: any) {
-        await sb.from("statement_email_log").update({
-          status: "failed",
-          error_message: e.message?.slice(0, 500) || "unknown error",
-        }).eq("id", logRow.id)
-        failures.push({ account: c.account_number, email: c.email, error: e.message || "unknown error" })
-      }
-    }
-
-    // Run with a small concurrency window
-    for (let i = 0; i < recipients.length; i += CONCURRENCY) {
-      const slice = recipients.slice(i, i + CONCURRENCY)
-      await Promise.all(slice.map(sendOne))
-    }
-
-    return NextResponse.json({
-      sent, failed: failures.length, failures: failures.slice(0, 50),
-      total_attempted: recipients.length, period, period_label: label,
-    })
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
-  }
-}
-
-// ---- helper: paginate past 1000-row cap on a table ----
-async function fetchAll(
-  sb: ReturnType<typeof admin>, table: string, columns: string,
-  filter?: (q: any) => any
-) {
-  const PAGE = 1000
-  const out: any[] = []
-  let from = 0
-  while (from < 200_000) {
-    let q = sb.from(table).select(columns).range(from, from + PAGE - 1)
-    if (filter) q = filter(q)
-    const { data, error } = await q
-    if (error) throw new Error(error.message)
-    if (!data || data.length === 0) break
-    out.push(...data)
-    if (data.length < PAGE) break
-    from += PAGE
-  }
-  return out
 }
