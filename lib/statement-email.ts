@@ -35,7 +35,7 @@ export function renderStatementEmail(p: StatementEmailParams) {
     ``,
     `When you click the link above, you'll be asked for your first name, last name, and account number (the same information shown on your past statements).`,
     ``,
-    `Questions? Call us at ${phone} or reply to this email — we're happy to help.`,
+    `Questions? Call us at ${phone} — we're happy to help.`,
     ``,
     `— ${pharmacyName}`,
     ``,
@@ -91,8 +91,7 @@ export function renderStatementEmail(p: StatementEmailParams) {
                 </p>
 
                 <div style="margin-top:24px;padding-top:20px;border-top:1px solid #e5e7eb;font-size:14px;line-height:1.55;color:#4b5563;">
-                  <p style="margin:0 0 6px;">Questions? Call <strong style="color:#0B7C79;">${escapeHtml(phone)}</strong>
-                     or reply to this email — we're happy to help.</p>
+                  <p style="margin:0 0 6px;">Questions? Call <strong style="color:#0B7C79;">${escapeHtml(phone)}</strong> — we're happy to help.</p>
                 </div>
               </td>
             </tr>
