@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
-import { ArrowLeft, Upload, UserPlus, Pencil, Trash2, Mail, MailX, Search } from "lucide-react"
+import { ArrowLeft, Upload, UserPlus, Pencil, Trash2, Mail, MailX, Search, Send, Calendar } from "lucide-react"
 
 interface Customer {
   account_number: string
@@ -39,6 +39,10 @@ export default function AdminCustomersPage() {
 
   // Import modal
   const [importOpen, setImportOpen] = useState(false)
+
+  // Send email modals
+  const [bulkSendOpen, setBulkSendOpen] = useState(false)
+  const [singleSendFor, setSingleSendFor] = useState<Customer | null>(null)
 
   useEffect(() => {
     const t = setTimeout(() => load(), 250)  // tiny debounce while typing
@@ -99,6 +103,10 @@ export default function AdminCustomersPage() {
 
         {/* Action bar */}
         <div className="mb-6 flex flex-wrap items-center gap-3">
+          <button onClick={() => setBulkSendOpen(true)}
+            className="inline-flex items-center gap-2 rounded-md bg-[#0B7C79] px-4 py-2 text-sm font-medium text-white hover:bg-[#0a6b68]">
+            <Send className="h-4 w-4" /> Send Statement Emails
+          </button>
           <button onClick={() => setAdding(true)}
             className="inline-flex items-center gap-2 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800">
             <UserPlus className="h-4 w-4" /> Add Customer
@@ -111,6 +119,10 @@ export default function AdminCustomersPage() {
             className="inline-flex items-center gap-2 rounded-md bg-white px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50">
             Export CSV
           </a>
+          <Link href="/admin/statements/email-log"
+            className="ml-auto text-sm text-emerald-700 hover:underline">
+            View email send history →
+          </Link>
         </div>
 
         {/* Search + filters */}
@@ -178,10 +190,19 @@ export default function AdminCustomersPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button onClick={() => setEditing(c)} className="mr-2 inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800">
+                    {c.email && c.email_opt_in && (
+                      <button
+                        onClick={() => setSingleSendFor(c)}
+                        className="mr-2 inline-flex items-center gap-1 text-[#0B7C79] hover:text-[#0a6b68]"
+                        title="Send statement email"
+                      >
+                        <Send className="h-4 w-4" />
+                      </button>
+                    )}
+                    <button onClick={() => setEditing(c)} className="mr-2 inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800" title="Edit">
                       <Pencil className="h-4 w-4" />
                     </button>
-                    <button onClick={() => handleDelete(c)} className="inline-flex items-center gap-1 text-red-600 hover:text-red-700">
+                    <button onClick={() => handleDelete(c)} className="inline-flex items-center gap-1 text-red-600 hover:text-red-700" title="Delete">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   </td>
@@ -206,6 +227,23 @@ export default function AdminCustomersPage() {
       {importOpen && (
         <ImportModal onClose={() => setImportOpen(false)}
           onDone={() => { setImportOpen(false); load(); setMsg({ ok: true, text: "Import complete" }) }} />
+      )}
+
+      {/* Bulk send modal */}
+      {bulkSendOpen && (
+        <BulkSendModal
+          onClose={() => setBulkSendOpen(false)}
+          onDone={(result) => { setBulkSendOpen(false); setMsg({ ok: true, text: result }) }}
+        />
+      )}
+
+      {/* Single send modal */}
+      {singleSendFor && (
+        <SingleSendModal
+          customer={singleSendFor}
+          onClose={() => setSingleSendFor(null)}
+          onDone={(result) => { setSingleSendFor(null); setMsg({ ok: true, text: result }) }}
+        />
       )}
     </div>
   )
@@ -445,6 +483,283 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
             disabled={!preview || committing || preview.valid === 0}
             className="rounded bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50">
             {committing ? "Importing..." : preview ? `Import ${preview.valid} Rows` : "Import"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================================
+// Bulk Send modal — pick a month, preview, confirm, send
+// ============================================================================
+function BulkSendModal({ onClose, onDone }: { onClose: () => void; onDone: (msg: string) => void }) {
+  const [periods, setPeriods] = useState<string[]>([])
+  const [period, setPeriod] = useState<string>("")
+  const [preview, setPreview] = useState<any | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [includeMissing, setIncludeMissing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<any | null>(null)
+
+  // Load available billing periods from existing statements
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const r = await fetch("/api/admin/statements")
+        const d = await r.json()
+        if (r.ok && d.periods?.length) {
+          setPeriods(d.periods)
+          setPeriod(d.periods[0])
+        }
+      } catch {}
+    })()
+  }, [])
+
+  // Fetch preview whenever period or includeMissing changes
+  useEffect(() => {
+    if (!period) return
+    ;(async () => {
+      setLoading(true); setError(null); setPreview(null)
+      try {
+        const params = new URLSearchParams({ period })
+        if (includeMissing) params.append("include_missing_statement", "1")
+        const r = await fetch(`/api/admin/statements/send-emails?${params}`)
+        const d = await r.json()
+        if (!r.ok) setError(d.error || "Failed to load preview")
+        else setPreview(d)
+      } finally { setLoading(false) }
+    })()
+  }, [period, includeMissing])
+
+  const doSend = async () => {
+    setSending(true); setError(null)
+    try {
+      const r = await fetch("/api/admin/statements/send-emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "bulk", period, include_missing_statement: includeMissing }),
+      })
+      const d = await r.json()
+      if (!r.ok) { setError(d.error || "Send failed"); setSending(false); return }
+      setResult(d)
+      setSending(false)
+    } catch (e: any) {
+      setError(e.message || "Network error"); setSending(false)
+    }
+  }
+
+  if (result) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
+          <h2 className="mb-3 text-lg font-semibold text-emerald-800">Send complete</h2>
+          <div className="space-y-1 text-sm">
+            <p>✓ Sent: <strong>{result.sent}</strong> emails</p>
+            {result.failed > 0 && (
+              <p className="text-red-600">✗ Failed: <strong>{result.failed}</strong></p>
+            )}
+            <p className="text-gray-600">Total attempted: {result.total_attempted}</p>
+          </div>
+          {result.failures?.length > 0 && (
+            <details className="mt-3 text-xs">
+              <summary className="cursor-pointer text-red-700">See failure details</summary>
+              <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                {result.failures.map((f: any, i: number) => (
+                  <li key={i}><strong>{f.account}</strong> ({f.email}): {f.error}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          <div className="mt-5 flex justify-end">
+            <button onClick={() => onDone(`${result.sent} email${result.sent === 1 ? "" : "s"} sent`)}
+              className="rounded bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800">
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-xl rounded-lg bg-white shadow-xl">
+        <div className="border-b border-gray-200 px-5 py-4">
+          <h2 className="text-lg font-semibold">Send Statement Emails</h2>
+          <p className="mt-1 text-xs text-gray-600">
+            Customers receive a link to view their statement. No prescription or payment info is sent in the email.
+          </p>
+        </div>
+
+        <div className="space-y-4 p-5">
+          {error && <div className="rounded bg-red-50 p-2 text-sm text-red-700">{error}</div>}
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Billing Month</label>
+            {periods.length === 0 ? (
+              <p className="text-sm text-gray-500 italic">No billing periods found. Upload statements first.</p>
+            ) : (
+              <select value={period} onChange={(e) => setPeriod(e.target.value)}
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm">
+                {periods.map(p => <option key={p} value={p}>{formatPeriodLabel(p)}</option>)}
+              </select>
+            )}
+          </div>
+
+          {loading && <p className="text-sm text-gray-500">Loading preview…</p>}
+
+          {preview && (
+            <div className="rounded-lg bg-emerald-50 p-4 text-sm">
+              <p className="mb-3 font-semibold text-emerald-900">Preview — no emails sent yet</p>
+              <table className="w-full text-sm">
+                <tbody>
+                  <Row label="Total customers" value={preview.totals.total_customers} />
+                  <Row label="Statements uploaded for this month" value={preview.totals.statements_in_period} />
+                  <tr><td colSpan={2}><hr className="my-2 border-emerald-200" /></td></tr>
+                  <Row label="No email on file" value={preview.totals.no_email} muted />
+                  <Row label="Opted out" value={preview.totals.opted_out} muted />
+                  <Row label="Already emailed" value={preview.totals.already_sent} muted />
+                  <Row label="No statement this month" value={preview.totals.missing_statement}
+                    warn={!includeMissing && preview.totals.missing_statement > 0} />
+                  <tr><td colSpan={2}><hr className="my-2 border-emerald-200" /></td></tr>
+                  <Row label="Will send to" value={preview.totals.will_send} bold />
+                </tbody>
+              </table>
+
+              {preview.totals.missing_statement > 0 && (
+                <label className="mt-3 flex items-center gap-2 text-xs">
+                  <input type="checkbox" checked={includeMissing}
+                    onChange={(e) => setIncludeMissing(e.target.checked)} />
+                  Include customers with no statement for this month
+                  <span className="text-amber-700">
+                    (they'll get a link but the search page will say "no statements found")
+                  </span>
+                </label>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-gray-200 bg-gray-50 px-5 py-3">
+          <button onClick={onClose} disabled={sending}
+            className="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            Cancel
+          </button>
+          <button onClick={doSend}
+            disabled={sending || !preview || preview.totals.will_send === 0}
+            className="rounded bg-[#0B7C79] px-4 py-2 text-sm font-medium text-white hover:bg-[#0a6b68] disabled:opacity-50">
+            {sending ? "Sending..." : preview ? `Send ${preview.totals.will_send} Email${preview.totals.will_send === 1 ? "" : "s"}` : "Send"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Row({ label, value, muted, warn, bold }: { label: string; value: number; muted?: boolean; warn?: boolean; bold?: boolean }) {
+  const tr = muted ? "text-gray-600" : warn ? "text-amber-800" : "text-emerald-900"
+  const fw = bold ? "font-semibold" : ""
+  return (
+    <tr className={`${tr} ${fw}`}>
+      <td className="py-0.5 pr-2">{label}</td>
+      <td className="py-0.5 text-right">{value}</td>
+    </tr>
+  )
+}
+
+function formatPeriodLabel(p: string): string {
+  if (!p) return ""
+  const [y, m] = p.split("-")
+  if (!y || !m) return p
+  return new Date(parseInt(y), parseInt(m) - 1, 1)
+    .toLocaleDateString("en-US", { year: "numeric", month: "long" })
+}
+
+// ============================================================================
+// Single Send modal — send just one customer's statement email
+// ============================================================================
+function SingleSendModal({ customer, onClose, onDone }:
+  { customer: Customer; onClose: () => void; onDone: (msg: string) => void }) {
+  const [periods, setPeriods] = useState<string[]>([])
+  const [period, setPeriod] = useState("")
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const r = await fetch(`/api/admin/statements?search=${encodeURIComponent(customer.account_number)}`)
+        const d = await r.json()
+        if (r.ok && d.statements?.length) {
+          const seen = new Set<string>()
+          for (const s of d.statements) if (s.account_number === customer.account_number) seen.add(s.billing_period)
+          const list = Array.from(seen).sort().reverse()
+          setPeriods(list)
+          if (list[0]) setPeriod(list[0])
+        } else if (r.ok && d.periods) {
+          setPeriods(d.periods)
+          if (d.periods[0]) setPeriod(d.periods[0])
+        }
+      } catch {}
+    })()
+  }, [customer.account_number])
+
+  const doSend = async () => {
+    setSending(true); setError(null)
+    const r = await fetch("/api/admin/statements/send-emails", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "single", period, account_number: customer.account_number }),
+    })
+    const d = await r.json()
+    setSending(false)
+    if (!r.ok) { setError(d.error || "Send failed"); return }
+    if (d.sent > 0) onDone(`Email sent to ${customer.email}`)
+    else if (d.failures?.length) setError(d.failures[0].error || "Send failed")
+    else onDone("No action taken — customer may already have been emailed for this period")
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-lg bg-white shadow-xl">
+        <div className="border-b border-gray-200 px-5 py-4">
+          <h2 className="text-lg font-semibold">Send Statement Email</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            To: <strong>{customer.first_name} {customer.last_name}</strong> ({customer.email})
+          </p>
+        </div>
+
+        <div className="space-y-4 p-5">
+          {error && <div className="rounded bg-red-50 p-2 text-sm text-red-700">{error}</div>}
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Billing Month</label>
+            {periods.length === 0 ? (
+              <p className="text-sm text-gray-500 italic">No statements found for this customer.</p>
+            ) : (
+              <select value={period} onChange={(e) => setPeriod(e.target.value)}
+                className="w-full rounded border border-gray-300 px-3 py-2 text-sm">
+                {periods.map(p => <option key={p} value={p}>{formatPeriodLabel(p)}</option>)}
+              </select>
+            )}
+          </div>
+
+          <p className="rounded bg-gray-50 p-3 text-xs text-gray-600">
+            The email will contain a link to the public statements page where the customer
+            will enter their name and account number to view the PDF.
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-gray-200 bg-gray-50 px-5 py-3">
+          <button onClick={onClose} disabled={sending}
+            className="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            Cancel
+          </button>
+          <button onClick={doSend} disabled={sending || !period}
+            className="rounded bg-[#0B7C79] px-4 py-2 text-sm font-medium text-white hover:bg-[#0a6b68] disabled:opacity-50">
+            {sending ? "Sending..." : "Send Email"}
           </button>
         </div>
       </div>
