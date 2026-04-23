@@ -97,6 +97,31 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
           <div className="aspect-video overflow-hidden rounded-xl bg-gray-100 shadow-lg">
             <Image src={post.featured_image} alt={post.title} width={1200} height={675} className="h-full w-full object-cover" />
           </div>
+          {post.image_credit && (
+            <p className="mt-2 text-center text-xs italic text-gray-500">{post.image_credit}</p>
+          )}
+        </div>
+      )}
+
+      {/* Key Points — CNBC-style summary box */}
+      {Array.isArray(post.key_points) && post.key_points.length > 0 && (
+        <div className="mx-auto max-w-3xl px-6 pt-8">
+          <div className="rounded-xl border-l-4 border-emerald-600 bg-white p-5 shadow-sm ring-1 ring-emerald-900/5 md:p-6">
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-emerald-700">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Key Points
+            </h2>
+            <ul className="space-y-2 text-gray-700">
+              {post.key_points.map((pt: string, i: number) => (
+                <li key={i} className="flex gap-2 leading-relaxed">
+                  <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-emerald-600" aria-hidden="true" />
+                  <span>{pt}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
 
