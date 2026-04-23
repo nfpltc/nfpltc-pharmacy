@@ -78,6 +78,7 @@ async function handle(req: NextRequest) {
       status:             autoPublish ? "published" : "draft",
       featured_image:     post.main_image_url,             // main image column on this schema
       read_time:          estimateReadTime(post.content),
+      key_points:         post.key_points,                 // jsonb column added in migration 003
       generated_topic_id: topic.id,
       generated_at:       new Date().toISOString(),
       image_credit:       post.image_credit,
