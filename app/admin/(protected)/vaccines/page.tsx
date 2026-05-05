@@ -2,13 +2,80 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
+import SubmissionDetailModal, { DetailSection } from "@/components/SubmissionDetailModal"
 
 interface Vaccine {
-  id: string; first_name: string; last_name: string; dob: string; email: string; phone: string
-  vaccine_type: string; consent_name: string; consent_date: string; status: string
-  administered_date: string; administered_by: string; lot_number: string
-  screening_responses: Record<string, any> | null; notes: string | null; created_at: string
+  id: string
+  first_name: string
+  last_name: string
+  dob: string
+  email: string
+  phone: string
+  vaccine_type: string
+  consent_name: string
+  consent_date: string
+  status: string
+  administered_date: string
+  administered_by: string
+  lot_number: string
+  screening_responses: Record<string, any> | null
+  notes: string | null
+  created_at: string
+  [key: string]: any
 }
+
+// Sections shown in the View modal. Modal also auto-shows any other field.
+const VACCINE_SECTIONS: DetailSection[] = [
+  {
+    title: "Patient",
+    fields: [
+      { key: "first_name", label: "First Name" },
+      { key: "last_name",  label: "Last Name" },
+      { key: "dob",        label: "Date of Birth" },
+      { key: "phone",      label: "Phone" },
+      { key: "email",      label: "Email" },
+      { key: "address",    label: "Address" },
+      { key: "city",       label: "City" },
+      { key: "state",      label: "State" },
+      { key: "zip",        label: "ZIP" },
+    ],
+  },
+  {
+    title: "Vaccine Selection",
+    fields: [
+      { key: "vaccine_type", label: "Vaccines Selected" },
+    ],
+  },
+  {
+    title: "Consent",
+    fields: [
+      { key: "consent_name", label: "Consent Signed By" },
+      { key: "consent_date", label: "Consent Date" },
+    ],
+  },
+  {
+    title: "Administration",
+    fields: [
+      { key: "status",            label: "Status" },
+      { key: "administered_date", label: "Date Administered" },
+      { key: "administered_by",   label: "Administered By" },
+      { key: "lot_number",        label: "Lot Number" },
+    ],
+  },
+  {
+    title: "Submission Info",
+    fields: [
+      { key: "created_at", label: "Submitted" },
+      { key: "updated_at", label: "Last Updated" },
+    ],
+  },
+  {
+    title: "Internal",
+    fields: [
+      { key: "notes", label: "Admin Notes" },
+    ],
+  },
+]
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-700", scheduled: "bg-blue-100 text-blue-700",
@@ -24,6 +91,7 @@ export default function AdminVaccinesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [editId, setEditId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({ status: "", notes: "" })
+  const [viewing, setViewing] = useState<Vaccine | null>(null)
 
   useEffect(() => { load() }, [])
   const load = async () => {
@@ -106,6 +174,7 @@ export default function AdminVaccinesPage() {
                     <button onClick={save} className="text-sm font-medium text-emerald-600">Save</button>
                     <button onClick={() => setEditId(null)} className="text-sm text-gray-400 ml-2">Cancel</button>
                   </> : <>
+                    <button onClick={() => setViewing(s)} className="rounded-lg p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600" title="View details">👁️</button>
                     <button onClick={() => { setEditId(s.id); setEditForm({ status: s.status, notes: s.notes || "" }) }} className="rounded-lg p-2 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit">✏️</button>
                     <button onClick={() => del(s.id)} className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600" title="Delete">🗑️</button>
                   </>}
@@ -125,6 +194,16 @@ export default function AdminVaccinesPage() {
               </div>}
             </div>))}</div>}
       </section>
+
+      {viewing && (
+        <SubmissionDetailModal
+          data={viewing}
+          title={`${viewing.first_name || ""} ${viewing.last_name || ""}`.trim() || "Vaccine Submission"}
+          subtitle={`Submitted ${fmt(viewing.created_at)}`}
+          sections={VACCINE_SECTIONS}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </main>
   )
 }
