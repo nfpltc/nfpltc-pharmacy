@@ -271,11 +271,68 @@ async function createStyledPdf(form: any, id: string) {
     y -= 10
   }
 
+  // Word-wrap a string to a maximum pixel width using the given font/size.
+  // Returns an array of lines that all fit within `maxWidth`.
+  const wrapText = (text: string, theFont: typeof font, size: number, maxWidth: number): string[] => {
+    const s = String(text ?? "-")
+    if (!s) return ["-"]
+    const words = s.split(/\s+/)
+    const lines: string[] = []
+    let current = ""
+    for (const word of words) {
+      const candidate = current ? current + " " + word : word
+      const w = theFont.widthOfTextAtSize(candidate, size)
+      if (w <= maxWidth) {
+        current = candidate
+      } else {
+        if (current) lines.push(current)
+        // Single word longer than maxWidth — force-break by characters
+        if (theFont.widthOfTextAtSize(word, size) > maxWidth) {
+          let chunk = ""
+          for (const ch of word) {
+            if (theFont.widthOfTextAtSize(chunk + ch, size) > maxWidth) {
+              if (chunk) lines.push(chunk)
+              chunk = ch
+            } else {
+              chunk += ch
+            }
+          }
+          current = chunk
+        } else {
+          current = word
+        }
+      }
+    }
+    if (current) lines.push(current)
+    return lines.length ? lines : ["-"]
+  }
+
+  // Layout constants for the value column
+  const LABEL_X = 50
+  const VALUE_X = 180
+  const PAGE_RIGHT_MARGIN = 40
+  const VALUE_MAX_WIDTH = 612 - VALUE_X - PAGE_RIGHT_MARGIN  // ~392 pt
+  const ROW_LINE_HEIGHT = 13                                 // spacing between wrapped lines
+  const ROW_GAP_BEFORE = 14                                  // gap above each row
+
+  // Draws a label + value, wrapping the value across multiple lines if needed.
+  // Reserves enough vertical space for ALL the wrapped lines and starts a new
+  // page if the row wouldn't fit on the current one.
   const line = (label: string, value: any) => {
-    y -= 14
-    if (y < 60) newPage()
-    page.drawText(`${label}:`, { x: 50, y, size: 10, font: bold })
-    page.drawText(`${value ?? "-"}`, { x: 180, y, size: 10, font })
+    const text = (value === null || value === undefined || value === "") ? "-" : String(value)
+    const wrapped = wrapText(text, font, 10, VALUE_MAX_WIDTH)
+    const rowHeight = ROW_GAP_BEFORE + (wrapped.length - 1) * ROW_LINE_HEIGHT
+
+    // Will the row fit on the current page? If not, start a new one.
+    if (y - rowHeight < 60) newPage()
+
+    y -= ROW_GAP_BEFORE
+    page.drawText(`${label}:`, { x: LABEL_X, y, size: 10, font: bold })
+    page.drawText(wrapped[0], { x: VALUE_X, y, size: 10, font })
+    for (let i = 1; i < wrapped.length; i++) {
+      y -= ROW_LINE_HEIGHT
+      page.drawText(wrapped[i], { x: VALUE_X, y, size: 10, font })
+    }
   }
 
   // Meta
