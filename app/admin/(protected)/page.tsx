@@ -1,12 +1,12 @@
 import Link from "next/link"
 import { cookies } from "next/headers"
 import { createServerClient } from "@supabase/ssr"
-import { createClient as createSbAdmin } from "@supabase/supabase-js"
 import {
   ShieldCheck, BadgeCheck, Users, FileText, Newspaper, LogOut,
   Briefcase, Mail, CreditCard, Syringe, MessageSquare, Receipt, UserCheck, BookOpen, UsersRound, FileStack
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import AnalyticsDashboard from "@/components/AnalyticsDashboard"
 
 function HeroBadge({
   icon: Icon, title, desc,
@@ -22,26 +22,6 @@ function HeroBadge({
       </div>
     </div>
   )
-}
-
-function StatCard({
-  icon: Icon, label, value, href,
-}: { icon: React.ElementType; label: string; value: number | string | null; href?: string }) {
-  const Content = (
-    <div className="group block rounded-xl border border-emerald-900/10 bg-white p-5 shadow-sm ring-emerald-700/15 transition hover:shadow-md">
-      <div className="flex items-center gap-3">
-        <div className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-emerald-700/10 text-emerald-700">
-          <Icon className="h-5 w-5" aria-hidden="true" />
-        </div>
-        <div className="flex-1">
-          <p className="text-sm text-gray-600">{label}</p>
-          <p className="text-xl font-semibold text-gray-900">{value ?? "—"}</p>
-        </div>
-        {href && <span className="text-sm font-medium text-emerald-700 group-hover:underline">Open</span>}
-      </div>
-    </div>
-  )
-  return href ? <Link href={href}>{Content}</Link> : Content
 }
 
 const sidebarLinks = [
@@ -74,40 +54,6 @@ export default async function AdminHomePage() {
   const { data: userRes } = await supabase.auth.getUser()
   const user = userRes?.user
   const displayName = user?.user_metadata?.full_name || user?.email?.split("@")?.[0] || "Admin"
-
-  let counts: Record<string, number | null> = {
-    enrollments: null, credit_cards: null, vaccines: null,
-    contacts: null, bills: null, jobs: null,
-    candidates: null, blogs: null, subscribers: null, statements: null,
-  }
-
-  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    try {
-      const admin = createSbAdmin(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        { auth: { persistSession: false, autoRefreshToken: false } }
-      )
-      const tables: [string, string][] = [
-        ["enrollments", "enrollment_submissions"],
-        ["credit_cards", "credit_card_submissions"],
-        ["vaccines", "vaccine_submissions"],
-        ["contacts", "contact_submissions"],
-        ["bills", "bills"],
-        ["jobs", "jobs"],
-        ["candidates", "job_applications"],
-        ["blogs", "blog_posts"],
-        ["subscribers", "newsletter_subscribers"],
-        ["statements", "customer_statements"],
-      ]
-      for (const [key, table] of tables) {
-        try {
-          const r = await admin.from(table).select("*", { count: "exact", head: true })
-          counts[key] = r.count ?? 0
-        } catch { counts[key] = null }
-      }
-    } catch { /* fallback */ }
-  }
 
   return (
     <main className="min-h-screen bg-[#F7F5EF]">
@@ -188,20 +134,7 @@ export default async function AdminHomePage() {
         </aside>
 
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Overview</h2>
-
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <StatCard icon={UserCheck} label="Enrollments" value={counts.enrollments} href="/admin/enrollments" />
-            <StatCard icon={CreditCard} label="Card Updates" value={counts.credit_cards} href="/admin/credit-cards" />
-            <StatCard icon={Syringe} label="Vaccines" value={counts.vaccines} href="/admin/vaccines" />
-            <StatCard icon={MessageSquare} label="Contacts" value={counts.contacts} href="/admin/contacts" />
-            <StatCard icon={Receipt} label="Bills" value={counts.bills} href="/admin/bills" />
-            <StatCard icon={Briefcase} label="Active Jobs" value={counts.jobs} href="/admin/jobs" />
-            <StatCard icon={Users} label="Candidates" value={counts.candidates} href="/admin/candidates" />
-            <StatCard icon={BookOpen} label="Blog Posts" value={counts.blogs} href="/admin/blogs" />
-            <StatCard icon={UsersRound} label="Subscribers" value={counts.subscribers} href="/admin/subscribers" />
-            <StatCard icon={FileStack} label="Statements" value={counts.statements} href="/admin/statements" />
-          </div>
+          <AnalyticsDashboard />
 
           <div className="mt-10 rounded-xl border border-emerald-900/10 bg-white p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-gray-900">Quick Links</h2>
@@ -211,6 +144,12 @@ export default async function AdminHomePage() {
                 <div className="flex items-center gap-3">
                   <div className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-emerald-700/10 text-emerald-700"><FileStack className="h-5 w-5" /></div>
                   <div><p className="font-medium text-gray-900">Statements</p><p className="text-xs text-gray-600">Bulk upload PDFs</p></div>
+                </div>
+              </Link>
+              <Link href="/admin/customers" className="group rounded-lg border border-emerald-900/10 p-4 hover:bg-emerald-50">
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-emerald-700/10 text-emerald-700"><UsersRound className="h-5 w-5" /></div>
+                  <div><p className="font-medium text-gray-900">Customers</p><p className="text-xs text-gray-600">Manage email list</p></div>
                 </div>
               </Link>
               <Link href="/admin/jobs" className="group rounded-lg border border-emerald-900/10 p-4 hover:bg-emerald-50">
@@ -223,12 +162,6 @@ export default async function AdminHomePage() {
                 <div className="flex items-center gap-3">
                   <div className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-emerald-700/10 text-emerald-700"><BookOpen className="h-5 w-5" /></div>
                   <div><p className="font-medium text-gray-900">Blog Posts</p><p className="text-xs text-gray-600">Write articles</p></div>
-                </div>
-              </Link>
-              <Link href="/admin/subscribers" className="group rounded-lg border border-emerald-900/10 p-4 hover:bg-emerald-50">
-                <div className="flex items-center gap-3">
-                  <div className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-emerald-700/10 text-emerald-700"><UsersRound className="h-5 w-5" /></div>
-                  <div><p className="font-medium text-gray-900">Subscribers</p><p className="text-xs text-gray-600">Newsletter list</p></div>
                 </div>
               </Link>
             </div>
