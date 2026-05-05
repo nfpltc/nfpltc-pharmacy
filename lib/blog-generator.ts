@@ -251,12 +251,12 @@ async function fetchUnsplashImage(query: string): Promise<{ thumbUrl: string; fu
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────
-// Parses JSON that may be wrapped in markdown fences or preceded/followed by
-// stray text. Llama-3.3 on Groq often includes:
-//   - markdown code fences (```json ... ```)
-//   - preamble like "Here's the JSON:"
-//   - raw newlines/tabs INSIDE string values, which makes JSON invalid
-// We strip the wrapping junk and escape control characters inside strings.
+// Parses JSON that may include raw newlines inside string values, which is
+// what Llama-3.3 on Groq produces ~30% of the time. Strategy:
+//   1. Strip markdown fences and stray text
+//   2. Try parsing as-is (works for ~70%)
+//   3. Apply a forgiving repair that escapes literal control chars in strings
+//      but preserves the structural whitespace between JSON tokens
 function parseJsonFromLlm(raw: string): any {
   let s = String(raw).trim()
 
@@ -264,64 +264,107 @@ function parseJsonFromLlm(raw: string): any {
   s = s.replace(/^```(?:json|javascript|js)?\s*\n?/i, "")
   s = s.replace(/\n?```\s*$/i, "")
 
-  // If there's still junk around the JSON object, grab the outermost { ... }
+  // Grab outermost { ... } in case there's preamble/postamble text
   const firstBrace = s.indexOf("{")
   const lastBrace  = s.lastIndexOf("}")
   if (firstBrace >= 0 && lastBrace > firstBrace) {
     s = s.slice(firstBrace, lastBrace + 1)
   }
 
-  // Try parsing as-is first (the happy path)
-  try { return JSON.parse(s) } catch { /* fall through to repair */ }
+  // Stage 1: try parsing as-is (the happy path)
+  try { return JSON.parse(s) } catch { /* try repair */ }
 
-  // Repair: escape literal control characters that appear INSIDE string values.
-  // Walk the string char-by-char, track whether we're inside a "..." string,
-  // and replace raw newlines/tabs with their escaped forms when we are.
-  const repaired = repairControlChars(s)
-  return JSON.parse(repaired)
+  // Stage 2: repair literal control chars inside string values
+  try { return JSON.parse(repairJson(s)) } catch (e: any) {
+    throw new Error(`${e.message}. Sample around error: "${getErrorContext(s, e.message)}"`)
+  }
 }
 
-// Walks JSON text character by character. When inside a "..." string value,
-// replaces raw control characters (newline, tab, carriage return) with their
-// escaped equivalents (\n, \t, \r). Preserves backslash-escapes correctly.
-function repairControlChars(s: string): string {
+// Repairs JSON by walking char-by-char and tracking whether we're inside a
+// string. When inside a string, replace literal control chars (newline, tab,
+// etc.) with their escaped forms. Outside strings, structural whitespace
+// (newlines between properties) is preserved as-is.
+//
+// Critical detail: Llama sometimes emits unescaped " characters inside
+// strings (e.g. quoting a phrase). My naive parser thinks that ends the
+// string. To handle this, after seeing a quote we peek ahead — if the next
+// non-whitespace char is `:`, `,`, or `}`, we treat the quote as a real
+// string terminator. Otherwise we treat it as content and escape it.
+function repairJson(s: string): string {
   let out = ""
   let inString = false
-  let prevWasBackslash = false
-  for (let i = 0; i < s.length; i++) {
+  let i = 0
+  while (i < s.length) {
     const ch = s[i]
-    if (inString) {
-      if (prevWasBackslash) {
-        // Previous char was an unescaped backslash — this char is literal
-        out += ch
-        prevWasBackslash = false
-      } else if (ch === "\\") {
-        out += ch
-        prevWasBackslash = true
-      } else if (ch === '"') {
+    const code = ch.charCodeAt(0)
+
+    if (!inString) {
+      out += ch
+      if (ch === '"') inString = true
+      i++
+      continue
+    }
+
+    // Inside a string
+    if (ch === "\\") {
+      // Backslash escape — emit this char and the next one verbatim,
+      // but if the next char is a literal control char, escape it
+      out += ch
+      i++
+      if (i < s.length) {
+        const next = s[i]
+        const nextCode = next.charCodeAt(0)
+        if (nextCode < 0x20) {
+          out += "u" + nextCode.toString(16).padStart(4, "0")
+        } else {
+          out += next
+        }
+        i++
+      }
+      continue
+    }
+
+    if (ch === '"') {
+      // Look ahead: is this a real terminator or content?
+      // Real terminator: next non-whitespace char is `:`, `,`, or `}`, `]`
+      let j = i + 1
+      while (j < s.length && /\s/.test(s[j])) j++
+      const lookahead = s[j]
+      if (lookahead === ":" || lookahead === "," || lookahead === "}" || lookahead === "]" || j >= s.length) {
         out += ch
         inString = false
-      } else if (ch === "\n") {
-        out += "\\n"
-      } else if (ch === "\r") {
-        out += "\\r"
-      } else if (ch === "\t") {
-        out += "\\t"
-      } else if (ch.charCodeAt(0) < 0x20) {
-        // Other control chars — emit as \uXXXX
-        out += "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0")
-      } else {
-        out += ch
+        i++
+        continue
       }
-    } else {
-      out += ch
-      if (ch === '"') {
-        inString = true
-        prevWasBackslash = false
-      }
+      // It's an unescaped quote inside the string — escape it
+      out += '\\"'
+      i++
+      continue
     }
+
+    if (ch === "\n") { out += "\\n"; i++; continue }
+    if (ch === "\r") { out += "\\r"; i++; continue }
+    if (ch === "\t") { out += "\\t"; i++; continue }
+    if (code < 0x20) {
+      out += "\\u" + code.toString(16).padStart(4, "0")
+      i++
+      continue
+    }
+    out += ch
+    i++
   }
   return out
+}
+
+// Extract error position from JSON.parse error message and return ~40 chars
+// around that position to help diagnose what Llama actually emitted.
+function getErrorContext(s: string, errMsg: string): string {
+  const m = /position\s+(\d+)/.exec(errMsg)
+  if (!m) return ""
+  const pos = parseInt(m[1])
+  const start = Math.max(0, pos - 30)
+  const end = Math.min(s.length, pos + 30)
+  return s.slice(start, end).replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t")
 }
 
 function slugify(s: string): string {
