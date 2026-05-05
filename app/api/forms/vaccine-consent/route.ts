@@ -267,11 +267,50 @@ async function createConsentPdf(form: any, id: string) {
     y -= 10
   }
 
+  // Word-wrap a string to a maximum pixel width using the given font/size.
+  const wrapText = (text: string, theFont: typeof font, size: number, maxWidth: number): string[] => {
+    const s = String(text ?? "-")
+    if (!s) return ["-"]
+    const words = s.split(/\s+/)
+    const lines: string[] = []
+    let current = ""
+    for (const word of words) {
+      const candidate = current ? current + " " + word : word
+      if (theFont.widthOfTextAtSize(candidate, size) <= maxWidth) {
+        current = candidate
+      } else {
+        if (current) lines.push(current)
+        if (theFont.widthOfTextAtSize(word, size) > maxWidth) {
+          let chunk = ""
+          for (const ch of word) {
+            if (theFont.widthOfTextAtSize(chunk + ch, size) > maxWidth) {
+              if (chunk) lines.push(chunk)
+              chunk = ch
+            } else { chunk += ch }
+          }
+          current = chunk
+        } else {
+          current = word
+        }
+      }
+    }
+    if (current) lines.push(current)
+    return lines.length ? lines : ["-"]
+  }
+
+  const VALUE_MAX_WIDTH = 612 - 180 - 40
   const line = (label: string, value: any) => {
+    const text = (value === null || value === undefined || value === "") ? "-" : String(value)
+    const wrapped = wrapText(text, font, 10, VALUE_MAX_WIDTH)
+    const rowHeight = 14 + (wrapped.length - 1) * 13
+    if (y - rowHeight < 60) newPage()
     y -= 14
-    if (y < 60) newPage()
     page.drawText(`${label}:`, { x: 50, y, size: 10, font: bold })
-    page.drawText(`${value ?? "-"}`, { x: 180, y, size: 10, font })
+    page.drawText(wrapped[0], { x: 180, y, size: 10, font })
+    for (let i = 1; i < wrapped.length; i++) {
+      y -= 13
+      page.drawText(wrapped[i], { x: 180, y, size: 10, font })
+    }
   }
 
   // Meta
