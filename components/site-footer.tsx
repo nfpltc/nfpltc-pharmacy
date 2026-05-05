@@ -159,7 +159,7 @@ export function SiteFooter() {
                   href="/services/free-prescription-delivery"
                   className="hover:text-white transition-colors"
                 >
-                  Relaible Prescription Delivery
+                  Reliable Prescription Delivery
                 </Link>
               </li>
               <li>
