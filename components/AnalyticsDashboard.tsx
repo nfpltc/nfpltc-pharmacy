@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  LineChart, Line, BarChart, Bar, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
 } from "recharts"
 import {
@@ -36,11 +36,18 @@ const SOURCE_META: Record<string, { label: string; color: string; href: string; 
   statements:   { label: "Statements",    color: "#0B7C79", href: "/admin/statements",   Icon: FileStack },
 }
 
+// Statements dwarf everything else (1000s vs single digits), so by default
+// we exclude them so the smaller series are visible. User can toggle on.
+const DEFAULT_VISIBLE = ["enrollments", "vaccines", "credit_cards", "contacts"]
+
+type ChartType = "line" | "bar" | "area"
+
 export default function AnalyticsDashboard() {
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [chartMode, setChartMode] = useState<"line" | "bar">("line")
+  const [chartMode, setChartMode] = useState<ChartType>("area")
+  const [visible, setVisible] = useState<Set<string>>(new Set(DEFAULT_VISIBLE))
 
   useEffect(() => {
     ;(async () => {
@@ -70,6 +77,20 @@ export default function AnalyticsDashboard() {
   if (!data) return null
 
   const sources = data.sources
+  const visibleSources = sources.filter(s => visible.has(s))
+
+  const toggleSource = (key: string) => {
+    setVisible(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const showAll = () => setVisible(new Set(sources))
+  const showOnly = (key: string) => setVisible(new Set([key]))
+  const reset = () => setVisible(new Set(DEFAULT_VISIBLE))
 
   return (
     <div className="space-y-8">
@@ -88,74 +109,163 @@ export default function AnalyticsDashboard() {
             const s = data.summary[key]
             const m = SOURCE_META[key]
             if (!s || !m) return null
-            return <SummaryCard key={key} meta={m} stat={s} href={m.href} />
+            return (
+              <SummaryCard
+                key={key} meta={m} stat={s} href={m.href}
+                onClick={() => showOnly(key)}
+                isFocused={visible.size === 1 && visible.has(key)}
+              />
+            )
           })}
         </div>
       </div>
 
-      {/* ─── Monthly trend chart ─────────────────────────────────────── */}
-      <div className="rounded-xl border border-emerald-900/10 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
+      {/* ─── Monthly trend chart with filter pills ──────────────────── */}
+      <div className="rounded-xl border border-emerald-900/10 bg-white shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold text-gray-900">Last 12 Months</h2>
-            <p className="text-sm text-gray-500">Submissions per form type, by month</p>
+            <p className="text-sm text-gray-500">Click cards above to focus, use pills below to filter</p>
           </div>
+          {/* Chart type toggle */}
           <div className="flex rounded-lg border border-gray-200 p-0.5">
-            <button
-              onClick={() => setChartMode("line")}
-              className={`rounded px-3 py-1 text-xs font-medium ${chartMode === "line" ? "bg-emerald-700 text-white" : "text-gray-600"}`}
-            >Line</button>
-            <button
-              onClick={() => setChartMode("bar")}
-              className={`rounded px-3 py-1 text-xs font-medium ${chartMode === "bar" ? "bg-emerald-700 text-white" : "text-gray-600"}`}
-            >Bar</button>
+            {(["area", "line", "bar"] as ChartType[]).map(t => (
+              <button
+                key={t}
+                onClick={() => setChartMode(t)}
+                className={`rounded px-3 py-1 text-xs font-medium capitalize transition ${
+                  chartMode === t ? "bg-emerald-700 text-white" : "text-gray-600 hover:text-gray-900"
+                }`}
+              >{t}</button>
+            ))}
           </div>
         </div>
 
-        <div className="h-80 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            {chartMode === "line" ? (
-              <LineChart data={data.monthly_series} margin={{ top: 10, right: 20, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#6b7280" }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "#6b7280" }} />
-                <Tooltip
-                  contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}
-                  cursor={{ stroke: "#0EA171", strokeOpacity: 0.1, strokeWidth: 30 }}
+        {/* Filter pills */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-6 py-3">
+          {sources.map(key => {
+            const m = SOURCE_META[key]
+            if (!m) return null
+            const isVisible = visible.has(key)
+            return (
+              <button
+                key={key}
+                onClick={() => toggleSource(key)}
+                className={`group flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium transition ${
+                  isVisible
+                    ? "border border-transparent text-white shadow-sm"
+                    : "border border-gray-200 bg-white text-gray-500 hover:border-gray-300 hover:text-gray-700"
+                }`}
+                style={isVisible ? { backgroundColor: m.color } : undefined}
+                title={isVisible ? `Hide ${m.label}` : `Show ${m.label}`}
+              >
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: isVisible ? "rgba(255,255,255,0.8)" : m.color }}
                 />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                {sources.map(k => (
-                  <Line
-                    key={k}
-                    type="monotone"
-                    dataKey={k}
-                    name={SOURCE_META[k]?.label || k}
-                    stroke={SOURCE_META[k]?.color || "#666"}
-                    strokeWidth={2}
-                    dot={{ r: 3 }}
-                    activeDot={{ r: 5 }}
+                {m.label}
+              </button>
+            )
+          })}
+          <div className="ml-auto flex items-center gap-2 text-xs">
+            <button onClick={showAll} className="text-emerald-700 hover:underline">Show all</button>
+            <span className="text-gray-300">·</span>
+            <button onClick={reset} className="text-gray-500 hover:underline">Reset</button>
+          </div>
+        </div>
+
+        {/* Chart */}
+        <div className="h-80 w-full px-2 py-4">
+          {visibleSources.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-gray-400">
+              Select at least one form type above to see the chart
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              {chartMode === "area" ? (
+                <AreaChart data={data.monthly_series} margin={{ top: 10, right: 24, bottom: 0, left: 0 }}>
+                  <defs>
+                    {visibleSources.map(k => (
+                      <linearGradient key={k} id={`grad-${k}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%"   stopColor={SOURCE_META[k]?.color || "#666"} stopOpacity={0.35} />
+                        <stop offset="100%" stopColor={SOURCE_META[k]?.color || "#666"} stopOpacity={0} />
+                      </linearGradient>
+                    ))}
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 11, fill: "#6b7280" }}
+                    axisLine={{ stroke: "#e5e7eb" }}
+                    tickLine={false}
                   />
-                ))}
-              </LineChart>
-            ) : (
-              <BarChart data={data.monthly_series} margin={{ top: 10, right: 20, bottom: 0, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#6b7280" }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "#6b7280" }} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                {sources.map(k => (
-                  <Bar
-                    key={k}
-                    dataKey={k}
-                    name={SOURCE_META[k]?.label || k}
-                    fill={SOURCE_META[k]?.color || "#666"}
-                    radius={[4, 4, 0, 0]}
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fontSize: 11, fill: "#6b7280" }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={40}
                   />
-                ))}
-              </BarChart>
-            )}
-          </ResponsiveContainer>
+                  <Tooltip content={<CustomTooltip sources={visibleSources} />} />
+                  <Legend
+                    wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                    iconType="circle"
+                    iconSize={8}
+                  />
+                  {visibleSources.map(k => (
+                    <Area
+                      key={k}
+                      type="monotone"
+                      dataKey={k}
+                      name={SOURCE_META[k]?.label || k}
+                      stroke={SOURCE_META[k]?.color || "#666"}
+                      strokeWidth={2.5}
+                      fill={`url(#grad-${k})`}
+                      activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }}
+                    />
+                  ))}
+                </AreaChart>
+              ) : chartMode === "line" ? (
+                <LineChart data={data.monthly_series} margin={{ top: 10, right: 24, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} width={40} />
+                  <Tooltip content={<CustomTooltip sources={visibleSources} />} />
+                  <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} iconType="circle" iconSize={8} />
+                  {visibleSources.map(k => (
+                    <Line
+                      key={k}
+                      type="monotone"
+                      dataKey={k}
+                      name={SOURCE_META[k]?.label || k}
+                      stroke={SOURCE_META[k]?.color || "#666"}
+                      strokeWidth={2.5}
+                      dot={{ r: 3, strokeWidth: 0, fill: SOURCE_META[k]?.color || "#666" }}
+                      activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }}
+                    />
+                  ))}
+                </LineChart>
+              ) : (
+                <BarChart data={data.monthly_series} margin={{ top: 10, right: 24, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={{ stroke: "#e5e7eb" }} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={false} tickLine={false} width={40} />
+                  <Tooltip content={<CustomTooltip sources={visibleSources} />} cursor={{ fill: "rgba(14, 161, 113, 0.05)" }} />
+                  <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} iconType="circle" iconSize={8} />
+                  {visibleSources.map(k => (
+                    <Bar
+                      key={k}
+                      dataKey={k}
+                      name={SOURCE_META[k]?.label || k}
+                      fill={SOURCE_META[k]?.color || "#666"}
+                      radius={[6, 6, 0, 0]}
+                      maxBarSize={32}
+                    />
+                  ))}
+                </BarChart>
+              )}
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 
@@ -193,10 +303,10 @@ export default function AnalyticsDashboard() {
                     </td>
                     <td className="px-6 py-3 text-right text-gray-900">{s.today ?? "—"}</td>
                     <td className="px-6 py-3 text-right text-gray-900">{s.this_week ?? "—"}</td>
-                    <td className="px-6 py-3 text-right text-gray-900 font-semibold">{s.this_month}</td>
+                    <td className="px-6 py-3 text-right font-semibold text-gray-900">{s.this_month}</td>
                     <td className="px-6 py-3 text-right text-gray-500">{s.last_month}</td>
                     <td className="px-6 py-3 text-right text-gray-900">{s.this_year}</td>
-                    <td className="px-6 py-3 text-right text-gray-900 font-semibold">{s.total}</td>
+                    <td className="px-6 py-3 text-right font-semibold text-gray-900">{s.total}</td>
                   </tr>
                 )
               })}
@@ -208,11 +318,37 @@ export default function AnalyticsDashboard() {
   )
 }
 
+// ── Custom tooltip with cleaner styling ──────────────────────────────────
+function CustomTooltip({ active, payload, label, sources }: any) {
+  if (!active || !payload || !payload.length) return null
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-lg">
+      <p className="mb-1 text-xs font-semibold text-gray-900">{label}</p>
+      <div className="space-y-1">
+        {payload.map((entry: any, i: number) => (
+          <div key={i} className="flex items-center justify-between gap-4 text-xs">
+            <span className="flex items-center gap-2">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: entry.color }}
+              />
+              <span className="text-gray-600">{entry.name}</span>
+            </span>
+            <span className="font-semibold text-gray-900">{entry.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Summary card with month-over-month delta ─────────────────────────────
-function SummaryCard({ meta, stat, href }: {
+function SummaryCard({ meta, stat, href, onClick, isFocused }: {
   meta: { label: string; color: string; Icon: any }
   stat: SummaryStat
   href: string
+  onClick: () => void
+  isFocused: boolean
 }) {
   const { Icon } = meta
   const delta = stat.delta_pct
@@ -221,8 +357,16 @@ function SummaryCard({ meta, stat, href }: {
   const trendColor = trend === "up" ? "text-emerald-600" : trend === "down" ? "text-red-600" : "text-gray-500"
 
   return (
-    <Link href={href}
-      className="group block rounded-xl border border-emerald-900/10 bg-white p-5 shadow-sm transition hover:shadow-md"
+    <div
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onClick() }}
+      className={`group block cursor-pointer rounded-xl border bg-white p-5 shadow-sm transition hover:shadow-md ${
+        isFocused
+          ? "border-emerald-500 ring-2 ring-emerald-500/20"
+          : "border-emerald-900/10 hover:border-emerald-300"
+      }`}
     >
       <div className="mb-3 flex items-center justify-between">
         <div
@@ -238,9 +382,18 @@ function SummaryCard({ meta, stat, href }: {
       </div>
       <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{meta.label}</p>
       <p className="mt-1 text-2xl font-semibold text-gray-900">{stat.this_month}</p>
-      <p className="mt-1 text-xs text-gray-500">
-        <span className="font-medium text-gray-700">{stat.total}</span> all time
-      </p>
-    </Link>
+      <div className="mt-1 flex items-center justify-between">
+        <p className="text-xs text-gray-500">
+          <span className="font-medium text-gray-700">{stat.total}</span> all time
+        </p>
+        <Link
+          href={href}
+          onClick={(e) => e.stopPropagation()}
+          className="text-xs font-medium text-emerald-700 opacity-0 transition group-hover:opacity-100 hover:underline"
+        >
+          Open →
+        </Link>
+      </div>
+    </div>
   )
 }
