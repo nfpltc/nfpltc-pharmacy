@@ -252,8 +252,11 @@ async function fetchUnsplashImage(query: string): Promise<{ thumbUrl: string; fu
 
 // ─── Utilities ────────────────────────────────────────────────────────────
 // Parses JSON that may be wrapped in markdown fences or preceded/followed by
-// stray text. Llama-3.3 on Groq often adds ```json ... ``` fences despite
-// instructions not to, which would break strict JSON.parse.
+// stray text. Llama-3.3 on Groq often includes:
+//   - markdown code fences (```json ... ```)
+//   - preamble like "Here's the JSON:"
+//   - raw newlines/tabs INSIDE string values, which makes JSON invalid
+// We strip the wrapping junk and escape control characters inside strings.
 function parseJsonFromLlm(raw: string): any {
   let s = String(raw).trim()
 
@@ -268,7 +271,57 @@ function parseJsonFromLlm(raw: string): any {
     s = s.slice(firstBrace, lastBrace + 1)
   }
 
-  return JSON.parse(s)
+  // Try parsing as-is first (the happy path)
+  try { return JSON.parse(s) } catch { /* fall through to repair */ }
+
+  // Repair: escape literal control characters that appear INSIDE string values.
+  // Walk the string char-by-char, track whether we're inside a "..." string,
+  // and replace raw newlines/tabs with their escaped forms when we are.
+  const repaired = repairControlChars(s)
+  return JSON.parse(repaired)
+}
+
+// Walks JSON text character by character. When inside a "..." string value,
+// replaces raw control characters (newline, tab, carriage return) with their
+// escaped equivalents (\n, \t, \r). Preserves backslash-escapes correctly.
+function repairControlChars(s: string): string {
+  let out = ""
+  let inString = false
+  let prevWasBackslash = false
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (inString) {
+      if (prevWasBackslash) {
+        // Previous char was an unescaped backslash — this char is literal
+        out += ch
+        prevWasBackslash = false
+      } else if (ch === "\\") {
+        out += ch
+        prevWasBackslash = true
+      } else if (ch === '"') {
+        out += ch
+        inString = false
+      } else if (ch === "\n") {
+        out += "\\n"
+      } else if (ch === "\r") {
+        out += "\\r"
+      } else if (ch === "\t") {
+        out += "\\t"
+      } else if (ch.charCodeAt(0) < 0x20) {
+        // Other control chars — emit as \uXXXX
+        out += "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0")
+      } else {
+        out += ch
+      }
+    } else {
+      out += ch
+      if (ch === '"') {
+        inString = true
+        prevWasBackslash = false
+      }
+    }
+  }
+  return out
 }
 
 function slugify(s: string): string {
