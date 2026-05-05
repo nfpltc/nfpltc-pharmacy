@@ -2,12 +2,133 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
+import SubmissionDetailModal, { DetailSection } from "@/components/SubmissionDetailModal"
 
+// We list the columns our UI uses by name, but the modal will display every
+// field returned by the API — so this interface just types the common ones.
 interface Enrollment {
-  id: string; first_name: string; last_name: string; dob: string; submitter_email: string
-  submitter_phone: string; facility_name: string; room_number: string; start_date: string
-  status: string; notes: string | null; created_at: string
+  id: string
+  first_name: string
+  last_name: string
+  dob: string
+  submitter_email: string
+  submitter_phone: string
+  facility_name: string
+  room_number: string
+  start_date: string
+  status: string
+  notes: string | null
+  created_at: string
+  // ...all other columns are passed through to the modal
+  [key: string]: any
 }
+
+// Sections shown in the View modal. The modal also auto-shows any field
+// present on the row that's not in any section, so nothing is hidden.
+const ENROLLMENT_SECTIONS: DetailSection[] = [
+  {
+    title: "Submission Info",
+    fields: [
+      { key: "todays_date", label: "Today's Date" },
+      { key: "start_date",  label: "Start Date" },
+      { key: "start_time",  label: "Start Time" },
+      { key: "status",      label: "Status" },
+      { key: "created_at",  label: "Submitted" },
+    ],
+  },
+  {
+    title: "Submitter",
+    fields: [
+      { key: "submitter_relation",   label: "Relationship" },
+      { key: "submitter_first_name", label: "First Name" },
+      { key: "submitter_last_name",  label: "Last Name" },
+      { key: "submitter_phone",      label: "Phone" },
+      { key: "submitter_email",      label: "Email" },
+    ],
+  },
+  {
+    title: "Resident / Patient",
+    fields: [
+      { key: "first_name",     label: "First Name" },
+      { key: "last_name",      label: "Last Name" },
+      { key: "middle_initial", label: "Middle Initial" },
+      { key: "dob",            label: "Date of Birth" },
+      { key: "ssn_last4",      label: "SSN (Last 4)" },
+      { key: "gender",         label: "Gender" },
+      { key: "home_address",   label: "Home Address" },
+      { key: "city",           label: "City" },
+      { key: "state",          label: "State" },
+      { key: "zip",            label: "ZIP" },
+      { key: "allergies",      label: "Allergies" },
+    ],
+  },
+  {
+    title: "Facility",
+    fields: [
+      { key: "facility_name",        label: "Facility Name" },
+      { key: "room_number",          label: "Room Number" },
+      { key: "facility_address",     label: "Address" },
+      { key: "facility_city",        label: "City" },
+      { key: "facility_state",       label: "State" },
+      { key: "facility_zip",         label: "ZIP" },
+      { key: "moving_from",          label: "Moving From" },
+      { key: "hospital_rehab_name",  label: "Hospital/Rehab Name" },
+      { key: "hospital_rehab_phone", label: "Hospital/Rehab Phone" },
+    ],
+  },
+  {
+    title: "Primary Care Physician",
+    fields: [
+      { key: "pcp_name",      label: "Name" },
+      { key: "pcp_specialty", label: "Specialty" },
+      { key: "pcp_address",   label: "Address" },
+      { key: "pcp_phone",     label: "Phone" },
+      { key: "pcp_fax",       label: "Fax" },
+    ],
+  },
+  {
+    title: "Insurance",
+    fields: [
+      { key: "rx_member_id", label: "Member ID" },
+      { key: "rx_grp",       label: "Group" },
+      { key: "rx_bin",       label: "BIN" },
+      { key: "rx_pcn",       label: "PCN" },
+    ],
+  },
+  {
+    title: "Payment Card (last 4 only)",
+    fields: [
+      { key: "card_type",        label: "Card Type" },
+      { key: "card_last4",       label: "Last 4" },
+      { key: "card_exp",         label: "Expiration" },
+      { key: "cardholder_name",  label: "Cardholder Name" },
+      { key: "billing_address",  label: "Billing Address" },
+      { key: "billing_city",     label: "Billing City" },
+      { key: "billing_state",    label: "Billing State" },
+      { key: "billing_zip",      label: "Billing ZIP" },
+    ],
+  },
+  {
+    title: "Additional Contact",
+    fields: [
+      { key: "additional_contact_name",  label: "Name" },
+      { key: "additional_contact_phone", label: "Phone" },
+    ],
+  },
+  {
+    title: "Authorization",
+    fields: [
+      { key: "auth_name", label: "Authorized By" },
+      { key: "auth_date", label: "Date" },
+    ],
+  },
+  {
+    title: "Internal",
+    fields: [
+      { key: "notes", label: "Admin Notes" },
+    ],
+  },
+]
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-700", processing: "bg-blue-100 text-blue-700",
@@ -22,6 +143,7 @@ export default function AdminEnrollmentsPage() {
   const [search, setSearch] = useState("")
   const [editId, setEditId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({ status: "", notes: "" })
+  const [viewing, setViewing] = useState<Enrollment | null>(null)
 
   useEffect(() => { load() }, [])
   const load = async () => {
@@ -108,6 +230,7 @@ export default function AdminEnrollmentsPage() {
                       <button onClick={save} className="text-sm font-medium text-emerald-600">Save</button>
                       <button onClick={() => setEditId(null)} className="text-sm text-gray-400">Cancel</button>
                     </div> : <div className="flex justify-end gap-1">
+                      <button onClick={() => setViewing(e)} className="rounded-lg p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600" title="View details">👁️</button>
                       <button onClick={() => { setEditId(e.id); setEditForm({ status: e.status, notes: e.notes || "" }) }} className="rounded-lg p-2 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit">✏️</button>
                       <button onClick={() => del(e.id)} className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600" title="Delete">🗑️</button>
                     </div>}
@@ -116,6 +239,16 @@ export default function AdminEnrollmentsPage() {
             </table></div>
           </div>}
       </section>
+
+      {viewing && (
+        <SubmissionDetailModal
+          data={viewing}
+          title={`${viewing.first_name || ""} ${viewing.last_name || ""}`.trim() || "Enrollment"}
+          subtitle={`Enrollment submitted ${fmt(viewing.created_at)}`}
+          sections={ENROLLMENT_SECTIONS}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </main>
   )
 }
