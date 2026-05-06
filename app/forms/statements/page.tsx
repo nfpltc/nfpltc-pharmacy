@@ -14,118 +14,6 @@ function formatPeriod(p: string) {
   return new Date(parseInt(y), parseInt(m) - 1).toLocaleDateString("en-US", { year: "numeric", month: "long" })
 }
 
-// ─── Email/Name gate that all visitors must pass before seeing the search form
-// Submits to /api/statements/gate, which records the entry and sets a session
-// cookie. Stays passed for 30 minutes per the cookie's maxAge.
-function StatementGate({ onPass }: { onPass: () => void }) {
-  const [name, setName]   = useState("")
-  const [email, setEmail] = useState("")
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState("")
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError("")
-    if (!name.trim() || !email.trim()) {
-      setError("Please enter both your name and email.")
-      return
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setError("Please enter a valid email address.")
-      return
-    }
-    setSubmitting(true)
-    try {
-      const r = await fetch("/api/statements/gate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), email: email.trim() }),
-      })
-      const d = await r.json()
-      if (!r.ok) { setError(d.error || "Could not continue. Please try again."); return }
-      onPass()
-    } catch {
-      setError("Network error. Please try again.")
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <div className="min-h-screen bg-[#F7F5EF]">
-      <section
-        className="relative isolate overflow-hidden"
-        style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}
-      >
-        <div className="mx-auto max-w-4xl px-6 py-16 md:py-20 text-center">
-          <Link href="/" className="mb-4 inline-flex items-center gap-2 text-sm text-white/80 hover:text-white transition">
-            ← Back to Home
-          </Link>
-          <h1 className="text-3xl font-semibold text-white md:text-4xl">View Statements</h1>
-          <p className="mx-auto mt-4 max-w-xl text-lg text-white/85">
-            Please tell us who you are before viewing pharmacy billing statements.
-          </p>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-md px-6 py-10">
-        <div className="rounded-xl border border-emerald-900/10 bg-white p-6 shadow-sm md:p-8">
-          <h2 className="mb-2 text-xl font-semibold text-gray-900">Welcome</h2>
-          <p className="mb-6 text-sm text-gray-600">
-            Enter your name and email to access the statements page.
-          </p>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Full Name *</label>
-              <input
-                type="text"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="e.g. Joan Smith"
-                autoFocus
-                className="h-12 w-full rounded-lg border border-gray-200 px-4 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">Email Address *</label>
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="h-12 w-full rounded-lg border border-gray-200 px-4 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-            </div>
-
-            {error && (
-              <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-2 text-sm text-red-700">
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full h-12 rounded-lg text-white font-medium shadow-sm transition disabled:opacity-60"
-              style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}
-            >
-              {submitting ? "Continuing…" : "Continue"}
-            </button>
-          </form>
-
-          <p className="mt-5 text-xs text-gray-500 leading-relaxed">
-            By continuing, you acknowledge that we record your name and email
-            for security and audit purposes. We will not share this information
-            with third parties. You will then be asked for your account number
-            to view a specific statement.
-          </p>
-        </div>
-      </section>
-    </div>
-  )
-}
-
 function HIPAAModal({ onAccept }: { onAccept: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -181,9 +69,6 @@ function HIPAAModal({ onAccept }: { onAccept: () => void }) {
 }
 
 export default function ViewStatementsPage() {
-  // Gate state — null = unknown (still checking), true/false = decided
-  const [gatePassed, setGatePassed] = useState<boolean | null>(null)
-
   const [accepted, setAccepted] = useState(false)
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
@@ -195,14 +80,6 @@ export default function ViewStatementsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
-  // Check whether the gate has already been passed (cookie set on a recent visit)
-  useEffect(() => {
-    fetch("/api/statements/gate")
-      .then(r => r.json())
-      .then(d => setGatePassed(Boolean(d.allowed)))
-      .catch(() => setGatePassed(false))
-  }, [])
-
   // Check if already accepted in this session
   useEffect(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem("hipaa_accepted") === "true") {
@@ -210,9 +87,8 @@ export default function ViewStatementsPage() {
     }
   }, [])
 
-  // Load available billing periods on mount — only once gate is passed
+  // Load available billing periods on mount
   useEffect(() => {
-    if (gatePassed !== true) return
     fetch("/api/statements/search?periods_only=1")
       .then(r => r.json()).then(d => setPeriods(d.periods || [])).catch(() => {})
   }, [])
@@ -237,26 +113,9 @@ export default function ViewStatementsPage() {
       const r = await fetch(`/api/statements/search?${params}`)
       const d = await r.json()
       if (r.ok) { setResults(d.statements || []); setPeriods(d.periods || []) }
-      else if (d.needs_gate) {
-        // Gate cookie expired (30 min timeout) — bounce back to gate
-        setGatePassed(false)
-      }
       else setError(d.error || "Search failed")
     } catch { setError("Something went wrong. Please try again.") }
     finally { setLoading(false) }
-  }
-
-  // ── Gate enforcement ────────────────────────────────────────────────
-  // While checking, show a quiet loader to avoid flashing the gate.
-  if (gatePassed === null) {
-    return (
-      <div className="min-h-screen bg-[#F7F5EF] flex items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-600" />
-      </div>
-    )
-  }
-  if (gatePassed === false) {
-    return <StatementGate onPass={() => setGatePassed(true)} />
   }
 
   return (
