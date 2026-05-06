@@ -29,8 +29,8 @@ export async function GET(req: NextRequest) {
       .limit(limit)
 
     if (q) {
-      // Search across name, email, and account number
-      query = query.or(`name.ilike.%${q}%,email.ilike.%${q}%,account_number_attempted.ilike.%${q}%`)
+      // Search across name and account number (email no longer collected)
+      query = query.or(`name.ilike.%${q}%,account_number_attempted.ilike.%${q}%`)
     }
 
     const { data, error } = await query
