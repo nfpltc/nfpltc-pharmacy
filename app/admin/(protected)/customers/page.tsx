@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
 import { ArrowLeft, Upload, UserPlus, Pencil, Trash2, Mail, MailX, Search, Send, Calendar } from "lucide-react"
+import StatementViewersTab from "@/components/StatementViewersTab"
 
 interface Customer {
   account_number: string
@@ -26,6 +27,9 @@ interface Stats {
 type FilterType = "all" | "with_email" | "no_email" | "opted_out"
 
 export default function AdminCustomersPage() {
+  // Top-level tabs: customer list vs. statement viewer audit log
+  const [activeTab, setActiveTab] = useState<"customers" | "viewers">("customers")
+
   const [customers, setCustomers] = useState<Customer[]>([])
   const [stats, setStats] = useState<Stats>({ total: 0, with_email: 0, no_email: 0, opted_out: 0 })
   const [loading, setLoading] = useState(true)
@@ -95,6 +99,41 @@ export default function AdminCustomersPage() {
       </div>
 
       <div className="mx-auto max-w-7xl p-6">
+        {/* Tab switcher */}
+        <div className="mb-6 flex border-b border-gray-200 bg-white rounded-t-lg">
+          <button
+            onClick={() => setActiveTab("customers")}
+            className={`px-5 py-3 text-sm font-medium transition relative ${
+              activeTab === "customers"
+                ? "text-emerald-700"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            Customers
+            {activeTab === "customers" && (
+              <span className="absolute bottom-[-1px] left-0 right-0 h-0.5 bg-emerald-600" />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("viewers")}
+            className={`px-5 py-3 text-sm font-medium transition relative ${
+              activeTab === "viewers"
+                ? "text-emerald-700"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+          >
+            Statement Viewers
+            {activeTab === "viewers" && (
+              <span className="absolute bottom-[-1px] left-0 right-0 h-0.5 bg-emerald-600" />
+            )}
+          </button>
+        </div>
+
+        {/* Tab content */}
+        {activeTab === "viewers" ? (
+          <StatementViewersTab />
+        ) : (
+        <>
         {msg && (
           <div className={`mb-4 rounded-lg p-3 text-sm ${msg.ok ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"}`}>
             {msg.text}
@@ -211,6 +250,8 @@ export default function AdminCustomersPage() {
             </tbody>
           </table>
         </div>
+        </>
+        )}
       </div>
 
       {/* Edit / Add modal */}
