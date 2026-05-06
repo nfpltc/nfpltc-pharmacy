@@ -20,18 +20,6 @@ export async function GET(req: NextRequest) {
 
     const sb = admin()
 
-    // ──────────────────────────────────────────────────────────────────────
-    // Gate enforcement: every request to this endpoint requires a valid
-    // stmt_viewer cookie (set after the visitor passes the name+email gate).
-    // ──────────────────────────────────────────────────────────────────────
-    const viewerLogId = req.cookies.get("stmt_viewer")?.value
-    if (!viewerLogId) {
-      return NextResponse.json(
-        { error: "Please enter your name and email to view statements", needs_gate: true },
-        { status: 401 }
-      )
-    }
-
     // Helper to fetch all distinct billing_periods (paginated past 1000-row cap)
     const fetchAllPeriods = async (): Promise<string[]> => {
       const periodsSet = new Set<string>()
@@ -64,7 +52,7 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    // Build query — case-insensitive search
+    // Build query — case-insensitive on names, exact match on account
     let query = sb.from("customer_statements")
       .select("id, first_name, last_name, account_number, billing_period, file_path, file_name, bill_date, amount_due")
       .order("billing_period", { ascending: false })
@@ -92,16 +80,25 @@ export async function GET(req: NextRequest) {
       })
     )
 
-    // Update the audit log row with what they searched for and whether they
-    // found results. Best-effort — failure to log doesn't block the user.
+    // ── Audit log: record every search attempt ──────────────────────────
+    // We capture name + account # used in the search, plus IP and whether
+    // any matching statement was found. Best-effort — failure is non-fatal.
     try {
-      await sb.from("statement_viewer_log").update({
+      const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim()
+        || req.headers.get("x-real-ip") || "unknown"
+      const userAgent = req.headers.get("user-agent") || ""
+
+      await sb.from("statement_viewer_log").insert({
+        name: `${firstName} ${lastName}`,
+        email: "",                                 // not collected anymore
+        ip_address: ip,
+        user_agent: userAgent.slice(0, 500),
         account_number_attempted: account,
         statement_viewed: results.length > 0,
         searched_at: new Date().toISOString(),
-      }).eq("id", viewerLogId)
+      })
     } catch (e) {
-      console.error("statement viewer log update failed (non-fatal):", e)
+      console.error("statement viewer log insert failed (non-fatal):", e)
     }
 
     const uniquePeriods = await fetchAllPeriods()
