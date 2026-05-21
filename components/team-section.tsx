@@ -10,6 +10,7 @@ export function TeamSection() {
     { name: "Sneha Krishnakumar PharmD, MS", title: "Pharmacy Manager" },
     { name: "Alexis Wing PharmD, MBA", title: "Pharmacist" },
     { name: "Angela Squarcia, RPH", title: "Pharmacist" },
+    { name: "Suman Raj Medikondu, MBA", title: "Manager, Business Operations Analytics" },
   ]
 
   return (
