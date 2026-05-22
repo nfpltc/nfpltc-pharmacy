@@ -9,178 +9,161 @@ function admin() {
   )
 }
 
-// GET - List all statements with optional filters
+// GET /api/admin/statements
+// Paginated, NO upfront signed URLs (use /sign endpoint when user clicks View).
+// Query: period, search, page (1-based), page_size (default 100, max 500)
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const period = searchParams.get("period")
-    const search = searchParams.get("search")
+    const search = searchParams.get("search")?.trim()
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1"))
+    const pageSize = Math.min(500, Math.max(10, parseInt(searchParams.get("page_size") || "100")))
+    const skipPeriods = searchParams.get("skip_periods") === "1"
+
     const sb = admin()
+    const from = (page - 1) * pageSize
+    const to = from + pageSize - 1
 
-    // --- 1) Fetch ALL matching rows in batches of 1000 (Supabase/PostgREST caps
-    //        each request at 1000 rows by default, so we paginate with .range()). ---
-    const PAGE_SIZE = 1000
-    const allRows: any[] = []
-    let from = 0
-    // Safety ceiling so a runaway query can't loop forever
-    const MAX_ROWS = 200_000
+    // Build the filtered query — count: 'exact' gives us total rows for pagination UI
+    let q = sb
+      .from("customer_statements")
+      .select("id, first_name, last_name, account_number, billing_period, file_path, file_name, bill_date, amount_due, created_at", { count: "exact" })
+      .order("last_name", { ascending: true })
+      .order("first_name", { ascending: true })
+      .range(from, to)
 
-    while (from < MAX_ROWS) {
-      let q = sb
-        .from("customer_statements")
-        .select("*")
-        .order("last_name", { ascending: true })
-        .order("first_name", { ascending: true })
-        .range(from, from + PAGE_SIZE - 1)
+    if (period && period !== "all") q = q.eq("billing_period", period)
+    if (search) {
+      q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,account_number.ilike.%${search}%`)
+    }
 
-      if (period && period !== "all") q = q.eq("billing_period", period)
-      if (search) {
-        q = q.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,account_number.ilike.%${search}%`)
+    const { data: rows, count, error } = await q
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // Distinct billing periods — only fetched when client doesn't already have them
+    let periods: string[] = []
+    if (!skipPeriods) {
+      const periodsSet = new Set<string>()
+      const PAGE_SIZE = 1000
+      let pFrom = 0
+      while (pFrom < 200_000) {
+        const { data: pageP } = await sb
+          .from("customer_statements")
+          .select("billing_period")
+          .order("billing_period", { ascending: false })
+          .range(pFrom, pFrom + PAGE_SIZE - 1)
+        if (!pageP || pageP.length === 0) break
+        for (const row of pageP) if (row.billing_period) periodsSet.add(row.billing_period)
+        if (pageP.length < PAGE_SIZE) break
+        pFrom += PAGE_SIZE
       }
-
-      const { data: pageRows, error: pageErr } = await q
-      if (pageErr) return NextResponse.json({ error: pageErr.message }, { status: 500 })
-      if (!pageRows || pageRows.length === 0) break
-
-      allRows.push(...pageRows)
-      if (pageRows.length < PAGE_SIZE) break  // last page
-      from += PAGE_SIZE
+      periods = Array.from(periodsSet).sort().reverse()
     }
 
-    // --- 2) Get distinct billing periods (paginated the same way). Needed so
-    //        the dropdown shows every month that has statements, not just the
-    //        newest month that happens to fill the first 1000 rows. ---
-    const periodsSet = new Set<string>()
-    let pFrom = 0
-    while (pFrom < MAX_ROWS) {
-      const { data: pageP, error: pErr } = await sb
-        .from("customer_statements")
-        .select("billing_period")
-        .order("billing_period", { ascending: false })
-        .range(pFrom, pFrom + PAGE_SIZE - 1)
-      if (pErr) break
-      if (!pageP || pageP.length === 0) break
-      for (const row of pageP) if (row.billing_period) periodsSet.add(row.billing_period)
-      if (pageP.length < PAGE_SIZE) break
-      pFrom += PAGE_SIZE
-    }
-    // Sort newest-first (YYYY-MM strings compare correctly lexicographically)
-    const uniquePeriods = Array.from(periodsSet).sort().reverse()
-
-    // --- 3) Sign file URLs (1 hr). Throttle concurrency so we don't overwhelm
-    //        Supabase Storage if the list is huge. ---
-    const CONCURRENCY = 25
-    const statements: any[] = []
-    for (let i = 0; i < allRows.length; i += CONCURRENCY) {
-      const batch = allRows.slice(i, i + CONCURRENCY)
-      const signed = await Promise.all(
-        batch.map(async (s: any) => {
-          if (s.file_path) {
-            try {
-              const { data: sig } = await sb.storage
-                .from("customer-statements")
-                .createSignedUrl(s.file_path, 3600)
-              s.file_url = sig?.signedUrl || null
-            } catch { s.file_url = null }
-          }
-          return s
-        })
-      )
-      statements.push(...signed)
-    }
-
-    return NextResponse.json({ statements, periods: uniquePeriods })
+    return NextResponse.json({
+      statements: rows || [],
+      total: count ?? 0,
+      page,
+      page_size: pageSize,
+      total_pages: count ? Math.ceil(count / pageSize) : 0,
+      periods,
+    })
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json({ error: err.message || "Server error" }, { status: 500 })
   }
 }
 
-// POST - Upload a single statement PDF (called repeatedly for bulk upload)
+// POST - bulk upload (unchanged)
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
-    const file = formData.get("file") as File | null
     const billingPeriod = formData.get("billing_period") as string
-    const fileName = formData.get("file_name") as string
-    const firstName = formData.get("first_name") as string
-    const lastName = formData.get("last_name") as string
-    const accountNumber = formData.get("account_number") as string
+    if (!billingPeriod) {
+      return NextResponse.json({ error: "billing_period is required" }, { status: 400 })
+    }
 
-    if (!file || !billingPeriod || !lastName) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    const files = formData.getAll("files") as File[]
+    if (!files || files.length === 0) {
+      return NextResponse.json({ error: "No files provided" }, { status: 400 })
     }
 
     const sb = admin()
+    const results = { uploaded: 0, failed: [] as string[] }
 
-    // Upload PDF to storage: customer-statements/2026-03/LASTNAME_FIRSTNAME_ACCOUNT.pdf
-    const storagePath = `${billingPeriod}/${fileName}`
-    const buffer = Buffer.from(await file.arrayBuffer())
+    for (const file of files) {
+      try {
+        const filename = file.name
+        const baseName = filename.replace(/\.pdf$/i, "")
+        const parts = baseName.split("_")
+        if (parts.length < 3) {
+          results.failed.push(`${filename}: filename must be LASTNAME_FIRSTNAME_ACCOUNT.pdf`)
+          continue
+        }
+        const lastName = parts[0]
+        const firstName = parts[1]
+        const accountNumber = parts.slice(2).join("_")
 
-    const { error: uploadErr } = await sb.storage
-      .from("customer-statements")
-      .upload(storagePath, buffer, { contentType: "application/pdf", upsert: true })
+        const filePath = `${billingPeriod}/${filename}`
+        const buffer = await file.arrayBuffer()
 
-    if (uploadErr) {
-      return NextResponse.json({ error: `Upload failed: ${uploadErr.message}` }, { status: 500 })
+        const { error: uploadErr } = await sb.storage
+          .from("customer-statements")
+          .upload(filePath, buffer, { contentType: "application/pdf", upsert: true })
+        if (uploadErr) {
+          results.failed.push(`${filename}: ${uploadErr.message}`)
+          continue
+        }
+
+        const { error: insertErr } = await sb.from("customer_statements").upsert({
+          first_name: firstName,
+          last_name: lastName,
+          account_number: accountNumber,
+          billing_period: billingPeriod,
+          file_path: filePath,
+          file_name: filename,
+          amount_due: 0,
+        }, { onConflict: "account_number,billing_period" })
+
+        if (insertErr) {
+          results.failed.push(`${filename}: DB - ${insertErr.message}`)
+          continue
+        }
+        results.uploaded++
+      } catch (e: any) {
+        results.failed.push(`${file.name}: ${e.message || "unknown"}`)
+      }
     }
 
-    // Check if record already exists (same name + period) and update, or insert new
-    const { data: existing } = await sb
-      .from("customer_statements")
-      .select("id")
-      .eq("last_name", lastName)
-      .eq("first_name", firstName)
-      .eq("billing_period", billingPeriod)
-      .eq("account_number", accountNumber)
-      .single()
-
-    const record = {
-      first_name: firstName,
-      last_name: lastName,
-      account_number: accountNumber,
-      billing_period: billingPeriod,
-      bill_date: new Date().toISOString().split("T")[0],
-      amount_due: 0,
-      file_path: storagePath,
-      file_name: fileName,
-      updated_at: new Date().toISOString(),
-    }
-
-    if (existing) {
-      await sb.from("customer_statements").update(record).eq("id", existing.id)
-    } else {
-      const { error: insertErr } = await sb.from("customer_statements").insert(record)
-      if (insertErr) return NextResponse.json({ error: `DB error: ${insertErr.message}` }, { status: 500 })
-    }
-
-    return NextResponse.json({ success: true, name: `${lastName}, ${firstName}` })
+    return NextResponse.json(results)
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json({ error: err.message || "Upload failed" }, { status: 500 })
   }
 }
 
-// DELETE - Delete all statements for a billing period, or a single statement
+// DELETE ?id= or ?period=
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
-    const period = searchParams.get("period")
     const id = searchParams.get("id")
+    const period = searchParams.get("period")
     const sb = admin()
 
     if (id) {
-      // Delete single statement
-      const { data: stmt } = await sb.from("customer_statements").select("file_path").eq("id", id).single()
-      if (stmt?.file_path) await sb.storage.from("customer-statements").remove([stmt.file_path])
-      await sb.from("customer_statements").delete().eq("id", id)
-      return NextResponse.json({ success: true, deleted: 1 })
+      const { data: row } = await sb.from("customer_statements").select("file_path").eq("id", id).single()
+      if (row?.file_path) {
+        await sb.storage.from("customer-statements").remove([row.file_path])
+      }
+      const { error } = await sb.from("customer_statements").delete().eq("id", id)
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ success: true })
     }
 
     if (period) {
-      // Delete all statements for a period
-      const { data: stmts } = await sb.from("customer_statements").select("file_path").eq("billing_period", period)
-      const paths = (stmts || []).map((s: any) => s.file_path).filter(Boolean)
+      const { data: rows } = await sb.from("customer_statements")
+        .select("file_path").eq("billing_period", period)
+      const paths = (rows || []).map((r: any) => r.file_path).filter(Boolean)
       if (paths.length > 0) {
-        // Delete storage files in batches of 100
         for (let i = 0; i < paths.length; i += 100) {
           await sb.storage.from("customer-statements").remove(paths.slice(i, i + 100))
         }
@@ -190,8 +173,8 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: true, deleted: paths.length })
     }
 
-    return NextResponse.json({ error: "Provide period or id" }, { status: 400 })
+    return NextResponse.json({ error: "id or period is required" }, { status: 400 })
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json({ error: err.message || "Delete failed" }, { status: 500 })
   }
 }
