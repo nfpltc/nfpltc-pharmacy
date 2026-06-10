@@ -1,7 +1,6 @@
 import Link from "next/link"
 import Image from "next/image"
 import { createClient } from "@supabase/supabase-js"
-import { NewsSection } from "@/components/blog/news-section"
 import { NewsletterForm } from "@/components/blog/newsletter-form"
 
 export const revalidate = 60 // Refresh cached page every 60 seconds
@@ -47,9 +46,6 @@ export default async function BlogPage() {
           <p className="mt-4 max-w-2xl text-lg text-white/85">Stay informed with the latest pharmacy news, health tips, and resources for long-term care facilities.</p>
         </div>
       </section>
-
-      {/* Live Pharmacy News from APIs */}
-      <NewsSection />
 
       {/* Our Articles from Supabase */}
       <section className="mx-auto max-w-6xl px-6 py-12">
