@@ -119,11 +119,27 @@ export async function POST(req: NextRequest) {
           .from("customer-statements")
           .upload(filePath, buffer, { contentType: "application/pdf", upsert: true })
         if (uploadErr) {
-          results.failed.push(`${filename}: ${uploadErr.message}`)
+          results.failed.push(`${filename}: storage - ${uploadErr.message}`)
           continue
         }
 
-        const { error: insertErr } = await sb.from("customer_statements").upsert({
+        // Insert or update the DB row WITHOUT relying on a unique constraint.
+        // (The previous upsert with onConflict required a UNIQUE index on
+        // (account_number, billing_period); if that index is missing the
+        // upsert throws. This explicit check-then-write avoids that.)
+        const { data: existing, error: selErr } = await sb
+          .from("customer_statements")
+          .select("id")
+          .eq("account_number", accountNumber)
+          .eq("billing_period", billingPeriod)
+          .maybeSingle()
+
+        if (selErr) {
+          results.failed.push(`${filename}: DB lookup - ${selErr.message}`)
+          continue
+        }
+
+        const rowData = {
           first_name: firstName,
           last_name: lastName,
           account_number: accountNumber,
@@ -131,10 +147,26 @@ export async function POST(req: NextRequest) {
           file_path: filePath,
           file_name: filename,
           amount_due: 0,
-        }, { onConflict: "account_number,billing_period" })
+        }
+
+        let insertErr = null
+        if (existing?.id) {
+          // Row already exists for this account+period — update it
+          const { error } = await sb
+            .from("customer_statements")
+            .update(rowData)
+            .eq("id", existing.id)
+          insertErr = error
+        } else {
+          // New row
+          const { error } = await sb
+            .from("customer_statements")
+            .insert(rowData)
+          insertErr = error
+        }
 
         if (insertErr) {
-          results.failed.push(`${filename}: DB - ${insertErr.message}`)
+          results.failed.push(`${filename}: DB write - ${insertErr.message}`)
           continue
         }
         results.uploaded++
