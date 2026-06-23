@@ -173,6 +173,14 @@ export default function AdminStatementsPage() {
     setUploading(false)
     setMsg({ ok: failed === 0, text: `Uploaded ${success} of ${files.length} statements${failed > 0 ? ` (${failed} failed)` : ""}` })
     setFiles([])
+
+    // After a successful upload, switch the filter to the period we just
+    // uploaded into, so the user immediately sees their new statement(s)
+    // rather than whatever period was previously filtered.
+    if (success > 0 && billingPeriod) {
+      setFilterPeriod(billingPeriod)
+      setPage(1)
+    }
     load()
   }
 
