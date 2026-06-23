@@ -266,11 +266,26 @@ export default function AdminStatementsPage() {
                 </div>
               )}
 
-              {/* Upload Results */}
-              {!uploading && uploadResults.success > 0 && (
-                <div className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm">
-                  <p className="font-medium text-emerald-700">✅ {uploadResults.success} uploaded</p>
-                  {uploadResults.failed > 0 && <p className="text-red-600">❌ {uploadResults.failed} failed</p>}
+              {/* Upload Results — show whenever there's something to report */}
+              {!uploading && (uploadResults.success > 0 || uploadResults.failed > 0) && (
+                <div className="mt-4 space-y-2">
+                  {uploadResults.success > 0 && (
+                    <div className="rounded-lg bg-emerald-50 p-3 text-sm">
+                      <p className="font-medium text-emerald-700">✅ {uploadResults.success} uploaded successfully</p>
+                    </div>
+                  )}
+                  {uploadResults.failed > 0 && (
+                    <div className="rounded-lg bg-red-50 p-3 text-sm">
+                      <p className="font-medium text-red-700">❌ {uploadResults.failed} failed</p>
+                      {uploadResults.errors.length > 0 && (
+                        <ul className="mt-2 space-y-1 text-xs text-red-700 max-h-40 overflow-y-auto">
+                          {uploadResults.errors.map((err, i) => (
+                            <li key={i} className="font-mono break-all">• {err}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
