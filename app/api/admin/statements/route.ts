@@ -83,7 +83,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "billing_period is required" }, { status: 400 })
     }
 
-    const files = formData.getAll("files") as File[]
+    // Accept both "file" (singular — what the admin UI sends one at a time)
+    // and "files" (plural — bulk script clients). This avoids a 400 when
+    // the client uses the older form-field name.
+    const filesField = formData.getAll("files") as File[]
+    const singleFile = formData.get("file") as File | null
+    const files: File[] = filesField.length > 0
+      ? filesField
+      : (singleFile ? [singleFile] : [])
+
     if (!files || files.length === 0) {
       return NextResponse.json({ error: "No files provided" }, { status: 400 })
     }
