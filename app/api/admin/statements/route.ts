@@ -44,21 +44,37 @@ export async function GET(req: NextRequest) {
     // Distinct billing periods — only fetched when client doesn't already have them
     let periods: string[] = []
     if (!skipPeriods) {
-      const periodsSet = new Set<string>()
-      const PAGE_SIZE = 1000
-      let pFrom = 0
-      while (pFrom < 200_000) {
-        const { data: pageP } = await sb
-          .from("customer_statements")
-          .select("billing_period")
-          .order("billing_period", { ascending: false })
-          .range(pFrom, pFrom + PAGE_SIZE - 1)
-        if (!pageP || pageP.length === 0) break
-        for (const row of pageP) if (row.billing_period) periodsSet.add(row.billing_period)
-        if (pageP.length < PAGE_SIZE) break
-        pFrom += PAGE_SIZE
+      // Fast path: call the distinct_billing_periods() SQL function, which
+      // uses an index-backed DISTINCT and returns ~60 rows in one query
+      // instead of scanning the whole table.
+      const { data: rpcData, error: rpcErr } = await sb.rpc("distinct_billing_periods")
+
+      if (!rpcErr && Array.isArray(rpcData)) {
+        periods = rpcData
+          .map((r: any) => r.billing_period)
+          .filter(Boolean)
+          .sort()
+          .reverse()
+      } else {
+        // Fallback: the SQL function isn't installed yet (or errored).
+        // Scan the table the old way so the dropdown still works. This keeps
+        // the app functional if the code deploys before the migration runs.
+        const periodsSet = new Set<string>()
+        const PAGE_SIZE = 1000
+        let pFrom = 0
+        while (pFrom < 200_000) {
+          const { data: pageP } = await sb
+            .from("customer_statements")
+            .select("billing_period")
+            .order("billing_period", { ascending: false })
+            .range(pFrom, pFrom + PAGE_SIZE - 1)
+          if (!pageP || pageP.length === 0) break
+          for (const row of pageP) if (row.billing_period) periodsSet.add(row.billing_period)
+          if (pageP.length < PAGE_SIZE) break
+          pFrom += PAGE_SIZE
+        }
+        periods = Array.from(periodsSet).sort().reverse()
       }
-      periods = Array.from(periodsSet).sort().reverse()
     }
 
     return NextResponse.json({
