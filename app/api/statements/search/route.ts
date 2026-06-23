@@ -20,8 +20,19 @@ export async function GET(req: NextRequest) {
 
     const sb = admin()
 
-    // Helper to fetch all distinct billing_periods (paginated past 1000-row cap)
+    // Helper to fetch all distinct billing_periods. Fast path uses the
+    // distinct_billing_periods() SQL function; falls back to a table scan
+    // if that function isn't installed yet.
     const fetchAllPeriods = async (): Promise<string[]> => {
+      const { data: rpcData, error: rpcErr } = await sb.rpc("distinct_billing_periods")
+      if (!rpcErr && Array.isArray(rpcData)) {
+        return rpcData
+          .map((r: any) => r.billing_period)
+          .filter(Boolean)
+          .sort()
+          .reverse()
+      }
+      // Fallback scan
       const periodsSet = new Set<string>()
       const PAGE_SIZE = 1000
       let pFrom = 0
