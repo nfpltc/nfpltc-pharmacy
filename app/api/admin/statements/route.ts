@@ -9,6 +9,24 @@ function admin() {
   )
 }
 
+// Given a billing period "YYYY-MM", return the last calendar day of that
+// month as an ISO date string "YYYY-MM-DD". E.g. "2026-05" → "2026-05-31",
+// "2026-02" → "2026-02-28" (handles leap years correctly via Date).
+function lastDayOfMonth(period: string): string {
+  const [yearStr, monthStr] = (period || "").split("-")
+  const year = parseInt(yearStr)
+  const month = parseInt(monthStr)  // 1-12
+  if (!year || !month || month < 1 || month > 12) {
+    // Fallback: today's date, so we never insert null
+    return new Date().toISOString().slice(0, 10)
+  }
+  // Day 0 of the *next* month = last day of this month
+  const last = new Date(year, month, 0)
+  const mm = String(last.getMonth() + 1).padStart(2, "0")
+  const dd = String(last.getDate()).padStart(2, "0")
+  return `${last.getFullYear()}-${mm}-${dd}`
+}
+
 // GET /api/admin/statements
 // Paginated, NO upfront signed URLs (use /sign endpoint when user clicks View).
 // Query: period, search, page (1-based), page_size (default 100, max 500)
@@ -131,6 +149,13 @@ export async function POST(req: NextRequest) {
         const filePath = `${billingPeriod}/${filename}`
         const buffer = await file.arrayBuffer()
 
+        // Derive a bill_date from the billing period (the last day of that
+        // month). The customer_statements table has a NOT NULL constraint on
+        // bill_date, and pharmacy statements are dated at month-end (e.g. a
+        // 2026-05 statement → bill_date 2026-05-31). This keeps the column
+        // populated with a sensible value.
+        const billDate = lastDayOfMonth(billingPeriod)
+
         const { error: uploadErr } = await sb.storage
           .from("customer-statements")
           .upload(filePath, buffer, { contentType: "application/pdf", upsert: true })
@@ -160,6 +185,7 @@ export async function POST(req: NextRequest) {
           last_name: lastName,
           account_number: accountNumber,
           billing_period: billingPeriod,
+          bill_date: billDate,
           file_path: filePath,
           file_name: filename,
           amount_due: 0,
