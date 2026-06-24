@@ -1,0 +1,325 @@
+"use client"
+import { useState, useEffect, useCallback } from "react"
+import { Mail, FileText, Save, Loader2, MapPin, Phone, Calendar, StickyNote, Send } from "lucide-react"
+
+// Shown inline when an admin clicks a customer row to expand it.
+// Three sections: editable contact profile, statement history, email history.
+// Phase 3 will add the action buttons (send statement/email/blog) — for now
+// the contact editing and history display are fully functional.
+
+interface CustomerProfile {
+  account_number: string
+  first_name: string
+  last_name: string
+  email: string | null
+  phone: string | null
+  email_opt_in: boolean
+  notes: string | null
+  address: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+  date_of_birth: string | null
+  secondary_contact: string | null
+}
+
+interface StatementRow {
+  id: string
+  billing_period: string
+  file_name: string
+  bill_date: string | null
+  amount_due: number
+  created_at: string
+}
+
+interface EmailRow {
+  id: string
+  billing_period: string | null
+  email_to: string | null
+  status: string | null
+  error_message: string | null
+  sent_at: string | null
+}
+
+export default function CustomerDetailPanel({
+  accountNumber,
+  onSaved,
+}: {
+  accountNumber: string
+  onSaved?: () => void
+}) {
+  const [loading, setLoading] = useState(true)
+  const [profile, setProfile] = useState<CustomerProfile | null>(null)
+  const [statements, setStatements] = useState<StatementRow[]>([])
+  const [emailHistory, setEmailHistory] = useState<EmailRow[]>([])
+  const [error, setError] = useState("")
+
+  // Editable form state (mirrors profile fields)
+  const [form, setForm] = useState<Partial<CustomerProfile>>({})
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState("")
+  const [openingId, setOpeningId] = useState<string | null>(null)
+
+  const fetchDetail = useCallback(async () => {
+    setLoading(true)
+    setError("")
+    try {
+      const r = await fetch(`/api/admin/customers/detail?account_number=${encodeURIComponent(accountNumber)}`)
+      const d = await r.json()
+      if (!r.ok) { setError(d.error || "Could not load details"); return }
+      setProfile(d.profile)
+      setStatements(d.statements || [])
+      setEmailHistory(d.email_history || [])
+      setForm(d.profile || {})
+    } catch (e: any) {
+      setError(e.message || "Network error")
+    } finally {
+      setLoading(false)
+    }
+  }, [accountNumber])
+
+  useEffect(() => { fetchDetail() }, [fetchDetail])
+
+  const updateField = (key: keyof CustomerProfile, value: any) =>
+    setForm(prev => ({ ...prev, [key]: value }))
+
+  const handleSave = async () => {
+    setSaving(true)
+    setSaveMsg("")
+    try {
+      const r = await fetch("/api/admin/customers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          account_number: accountNumber,
+          first_name: form.first_name,
+          last_name: form.last_name,
+          email: form.email,
+          phone: form.phone,
+          address: form.address,
+          city: form.city,
+          state: form.state,
+          zip: form.zip,
+          date_of_birth: form.date_of_birth,
+          secondary_contact: form.secondary_contact,
+          notes: form.notes,
+        }),
+      })
+      const d = await r.json()
+      if (!r.ok) { setSaveMsg(d.error || "Save failed"); return }
+      setSaveMsg("Saved ✓")
+      onSaved?.()
+      setTimeout(() => setSaveMsg(""), 2500)
+    } catch {
+      setSaveMsg("Network error")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const openStatement = async (id: string) => {
+    setOpeningId(id)
+    try {
+      const r = await fetch(`/api/admin/statements/sign?id=${id}`)
+      const d = await r.json()
+      if (r.ok && d.url) window.open(d.url, "_blank", "noopener,noreferrer")
+      else alert(d.error || "Could not open statement")
+    } catch {
+      alert("Could not open statement")
+    } finally {
+      setOpeningId(null)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-8 text-sm text-gray-500">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading customer details…
+      </div>
+    )
+  }
+
+  if (error) {
+    return <div className="rounded-lg bg-red-50 p-4 text-sm text-red-700">{error}</div>
+  }
+
+  return (
+    <div className="grid gap-6 p-5 md:grid-cols-2">
+      {/* ── Contact profile (editable) ──────────────────────────────── */}
+      <div className="space-y-3">
+        <h4 className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+          <MapPin className="h-4 w-4 text-[#0B7C79]" /> Contact Details
+        </h4>
+
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="First Name" value={form.first_name || ""} onChange={v => updateField("first_name", v)} />
+          <Field label="Last Name" value={form.last_name || ""} onChange={v => updateField("last_name", v)} />
+        </div>
+
+        <Field label="Email" type="email" value={form.email || ""} onChange={v => updateField("email", v)} icon={<Mail className="h-3.5 w-3.5" />} />
+        <Field label="Phone" value={form.phone || ""} onChange={v => updateField("phone", v)} icon={<Phone className="h-3.5 w-3.5" />} />
+        <Field label="Date of Birth" type="date" value={form.date_of_birth || ""} onChange={v => updateField("date_of_birth", v)} icon={<Calendar className="h-3.5 w-3.5" />} />
+
+        <Field label="Street Address" value={form.address || ""} onChange={v => updateField("address", v)} />
+        <div className="grid grid-cols-3 gap-2">
+          <Field label="City" value={form.city || ""} onChange={v => updateField("city", v)} />
+          <Field label="State" value={form.state || ""} onChange={v => updateField("state", v)} />
+          <Field label="Zip" value={form.zip || ""} onChange={v => updateField("zip", v)} />
+        </div>
+
+        <Field label="Secondary Contact" value={form.secondary_contact || ""} onChange={v => updateField("secondary_contact", v)} placeholder="e.g. caregiver name & phone" />
+
+        <div>
+          <label className="mb-1 flex items-center gap-1 text-xs font-medium text-gray-500">
+            <StickyNote className="h-3.5 w-3.5" /> Notes
+          </label>
+          <textarea
+            value={form.notes || ""}
+            onChange={e => updateField("notes", e.target.value)}
+            rows={3}
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            placeholder="Internal notes about this customer…"
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#0B7C79] px-4 py-2 text-sm font-medium text-white hover:bg-[#0a6b68] disabled:opacity-60"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Save Changes
+          </button>
+          {saveMsg && <span className="text-sm text-emerald-600">{saveMsg}</span>}
+        </div>
+      </div>
+
+      {/* ── History (statements + emails) ───────────────────────────── */}
+      <div className="space-y-5">
+        {/* Statements */}
+        <div>
+          <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <FileText className="h-4 w-4 text-[#0B7C79]" /> Statements ({statements.length})
+          </h4>
+          {statements.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">No statements on file.</p>
+          ) : (
+            <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-100">
+              <table className="min-w-full text-xs">
+                <thead className="bg-gray-50 text-gray-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Period</th>
+                    <th className="px-3 py-2 text-left">Bill Date</th>
+                    <th className="px-3 py-2 text-right">View</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {statements.map(s => (
+                    <tr key={s.id} className="hover:bg-gray-50">
+                      <td className="px-3 py-2">{formatPeriod(s.billing_period)}</td>
+                      <td className="px-3 py-2 text-gray-500">{s.bill_date || "—"}</td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          onClick={() => openStatement(s.id)}
+                          disabled={openingId === s.id}
+                          className="text-[#0B7C79] hover:underline disabled:opacity-50"
+                        >
+                          {openingId === s.id ? "…" : "View"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Email history */}
+        <div>
+          <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <Send className="h-4 w-4 text-[#0B7C79]" /> Email History ({emailHistory.length})
+          </h4>
+          {emailHistory.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">No emails sent yet.</p>
+          ) : (
+            <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-100">
+              <table className="min-w-full text-xs">
+                <thead className="bg-gray-50 text-gray-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Sent</th>
+                    <th className="px-3 py-2 text-left">Period</th>
+                    <th className="px-3 py-2 text-left">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {emailHistory.map(e => (
+                    <tr key={e.id} className="hover:bg-gray-50">
+                      <td className="px-3 py-2 whitespace-nowrap">{e.sent_at ? formatDateTime(e.sent_at) : "—"}</td>
+                      <td className="px-3 py-2">{e.billing_period ? formatPeriod(e.billing_period) : "—"}</td>
+                      <td className="px-3 py-2">
+                        <StatusBadge status={e.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Phase 3 placeholder note */}
+        <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
+          Actions (send statement, send blog, send custom email) coming next.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Small helpers ────────────────────────────────────────────────────────
+function Field({
+  label, value, onChange, type = "text", icon, placeholder,
+}: {
+  label: string; value: string; onChange: (v: string) => void
+  type?: string; icon?: React.ReactNode; placeholder?: string
+}) {
+  return (
+    <div>
+      <label className="mb-1 flex items-center gap-1 text-xs font-medium text-gray-500">
+        {icon}{label}
+      </label>
+      <input
+        type={type}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+      />
+    </div>
+  )
+}
+
+function StatusBadge({ status }: { status: string | null }) {
+  const s = (status || "").toLowerCase()
+  if (s === "sent" || s === "delivered") {
+    return <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">Sent</span>
+  }
+  if (s === "failed" || s === "bounced" || s === "error") {
+    return <span className="rounded-full bg-red-50 px-2 py-0.5 text-red-700">{status}</span>
+  }
+  return <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">{status || "—"}</span>
+}
+
+function formatPeriod(p: string): string {
+  if (!p) return "—"
+  const [y, m] = p.split("-")
+  if (!y || !m) return p
+  return new Date(parseInt(y), parseInt(m) - 1).toLocaleDateString("en-US", { year: "numeric", month: "short" })
+}
+
+function formatDateTime(iso: string): string {
+  const d = new Date(iso)
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })
+}
