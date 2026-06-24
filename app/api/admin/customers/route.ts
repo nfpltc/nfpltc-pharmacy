@@ -82,6 +82,12 @@ export async function POST(req: NextRequest) {
       phone:          body.phone ? String(body.phone).trim() : null,
       email_opt_in:   body.email_opt_in === false ? false : true,
       notes:          body.notes ? String(body.notes).trim() : null,
+      address:        body.address ? String(body.address).trim() : null,
+      city:           body.city ? String(body.city).trim() : null,
+      state:          body.state ? String(body.state).trim() : null,
+      zip:            body.zip ? String(body.zip).trim() : null,
+      date_of_birth:  body.date_of_birth ? String(body.date_of_birth).trim() : null,
+      secondary_contact: body.secondary_contact ? String(body.secondary_contact).trim() : null,
     }
 
     if (!payload.account_number || !payload.first_name || !payload.last_name) {
@@ -118,6 +124,12 @@ export async function PATCH(req: NextRequest) {
       updates.unsubscribed_at = body.email_opt_in === false ? new Date().toISOString() : null
     }
     if ("notes"        in body) updates.notes        = body.notes ? String(body.notes).trim() : null
+    if ("address"      in body) updates.address      = body.address ? String(body.address).trim() : null
+    if ("city"         in body) updates.city         = body.city ? String(body.city).trim() : null
+    if ("state"        in body) updates.state        = body.state ? String(body.state).trim() : null
+    if ("zip"          in body) updates.zip          = body.zip ? String(body.zip).trim() : null
+    if ("date_of_birth" in body) updates.date_of_birth = body.date_of_birth ? String(body.date_of_birth).trim() : null
+    if ("secondary_contact" in body) updates.secondary_contact = body.secondary_contact ? String(body.secondary_contact).trim() : null
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "no fields to update" }, { status: 400 })
