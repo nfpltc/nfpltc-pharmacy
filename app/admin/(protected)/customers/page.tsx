@@ -1,8 +1,9 @@
 "use client"
 import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
-import { ArrowLeft, Upload, UserPlus, Pencil, Trash2, Mail, MailX, Search, Send, Calendar } from "lucide-react"
+import { ArrowLeft, Upload, UserPlus, Pencil, Trash2, Mail, MailX, Search, Send, Calendar, ChevronDown, ChevronRight } from "lucide-react"
 import StatementViewersTab from "@/components/StatementViewersTab"
+import CustomerDetailPanel from "@/components/CustomerDetailPanel"
 
 interface Customer {
   account_number: string
@@ -29,6 +30,9 @@ type FilterType = "all" | "with_email" | "no_email" | "opted_out"
 export default function AdminCustomersPage() {
   // Top-level tabs: customer list vs. statement viewer audit log
   const [activeTab, setActiveTab] = useState<"customers" | "viewers">("customers")
+
+  // CRM: which customer row is currently expanded (by account_number)
+  const [expandedAccount, setExpandedAccount] = useState<string | null>(null)
 
   const [customers, setCustomers] = useState<Customer[]>([])
   const [stats, setStats] = useState<Stats>({ total: 0, with_email: 0, no_email: 0, opted_out: 0 })
@@ -204,48 +208,16 @@ export default function AdminCustomersPage() {
                   No customers found. {stats.total === 0 ? "Import an Excel file to get started." : "Try adjusting your search."}
                 </td></tr>
               ) : customers.map((c) => (
-                <tr key={c.account_number} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-900">
-                    {c.last_name.toUpperCase()}, {c.first_name}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{c.account_number}</td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {c.email || <span className="italic text-gray-400">none</span>}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{c.phone || "—"}</td>
-                  <td className="px-4 py-3">
-                    {!c.email ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
-                        No email
-                      </span>
-                    ) : c.email_opt_in ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                        <Mail className="h-3 w-3" /> Subscribed
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
-                        <MailX className="h-3 w-3" /> Opted out
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {c.email && c.email_opt_in && (
-                      <button
-                        onClick={() => setSingleSendFor(c)}
-                        className="mr-2 inline-flex items-center gap-1 text-[#0B7C79] hover:text-[#0a6b68]"
-                        title="Send statement email"
-                      >
-                        <Send className="h-4 w-4" />
-                      </button>
-                    )}
-                    <button onClick={() => setEditing(c)} className="mr-2 inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800" title="Edit">
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <button onClick={() => handleDelete(c)} className="inline-flex items-center gap-1 text-red-600 hover:text-red-700" title="Delete">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
+                <CustomerRow
+                  key={c.account_number}
+                  c={c}
+                  expanded={expandedAccount === c.account_number}
+                  onToggle={() => setExpandedAccount(expandedAccount === c.account_number ? null : c.account_number)}
+                  onSend={() => setSingleSendFor(c)}
+                  onEdit={() => setEditing(c)}
+                  onDelete={() => handleDelete(c)}
+                  onSaved={() => load()}
+                />
               ))}
             </tbody>
           </table>
@@ -805,5 +777,79 @@ function SingleSendModal({ customer, onClose, onDone }:
         </div>
       </div>
     </div>
+  )
+}
+
+// Renders one customer row plus its expandable CRM detail panel.
+// Extracted into its own component so the key lives here (React requires a
+// stable key on the mapped element, and we render two <tr> elements per row).
+function CustomerRow({
+  c, expanded, onToggle, onSend, onEdit, onDelete, onSaved,
+}: {
+  c: Customer
+  expanded: boolean
+  onToggle: () => void
+  onSend: () => void
+  onEdit: () => void
+  onDelete: () => void
+  onSaved: () => void
+}) {
+  return (
+    <>
+      <tr className="hover:bg-gray-50 cursor-pointer" onClick={onToggle}>
+        <td className="px-4 py-3 font-medium text-gray-900">
+          <span className="inline-flex items-center gap-2">
+            {expanded
+              ? <ChevronDown className="h-4 w-4 text-gray-400" />
+              : <ChevronRight className="h-4 w-4 text-gray-400" />}
+            {c.last_name.toUpperCase()}, {c.first_name}
+          </span>
+        </td>
+        <td className="px-4 py-3 text-gray-600">{c.account_number}</td>
+        <td className="px-4 py-3 text-gray-600">
+          {c.email || <span className="italic text-gray-400">none</span>}
+        </td>
+        <td className="px-4 py-3 text-gray-600">{c.phone || "—"}</td>
+        <td className="px-4 py-3">
+          {!c.email ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+              No email
+            </span>
+          ) : c.email_opt_in ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+              <Mail className="h-3 w-3" /> Subscribed
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+              <MailX className="h-3 w-3" /> Opted out
+            </span>
+          )}
+        </td>
+        <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+          {c.email && c.email_opt_in && (
+            <button
+              onClick={onSend}
+              className="mr-2 inline-flex items-center gap-1 text-[#0B7C79] hover:text-[#0a6b68]"
+              title="Send statement email"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          )}
+          <button onClick={onEdit} className="mr-2 inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-800" title="Edit">
+            <Pencil className="h-4 w-4" />
+          </button>
+          <button onClick={onDelete} className="inline-flex items-center gap-1 text-red-600 hover:text-red-700" title="Delete">
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={6} className="bg-gray-50/60 p-0">
+            <CustomerDetailPanel accountNumber={c.account_number} onSaved={onSaved} />
+          </td>
+        </tr>
+      )}
+    </>
   )
 }
