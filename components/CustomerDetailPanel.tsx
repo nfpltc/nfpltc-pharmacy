@@ -60,6 +60,61 @@ export default function CustomerDetailPanel({
   const [saveMsg, setSaveMsg] = useState("")
   const [openingId, setOpeningId] = useState<string | null>(null)
 
+  // Phase 3 — actions
+  const [sendingBlog, setSendingBlog] = useState(false)
+  const [actionMsg, setActionMsg] = useState("")
+  const [showCustomEmail, setShowCustomEmail] = useState(false)
+  const [emailSubject, setEmailSubject] = useState("")
+  const [emailBody, setEmailBody] = useState("")
+  const [sendingEmail, setSendingEmail] = useState(false)
+
+  const canEmail = Boolean(profile?.email && profile?.email_opt_in)
+
+  const sendBlog = async () => {
+    setSendingBlog(true)
+    setActionMsg("")
+    try {
+      const r = await fetch("/api/admin/customers/send-blog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account_number: accountNumber }),
+      })
+      const d = await r.json()
+      if (!r.ok) { setActionMsg(d.error || "Failed to send blog"); return }
+      setActionMsg(`Sent "${d.blog_title}" ✓`)
+      fetchDetail()  // refresh email history
+    } catch {
+      setActionMsg("Network error")
+    } finally {
+      setSendingBlog(false)
+    }
+  }
+
+  const sendCustomEmail = async () => {
+    if (!emailSubject.trim() || !emailBody.trim()) {
+      setActionMsg("Subject and message are required")
+      return
+    }
+    setSendingEmail(true)
+    setActionMsg("")
+    try {
+      const r = await fetch("/api/admin/customers/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account_number: accountNumber, subject: emailSubject, message: emailBody }),
+      })
+      const d = await r.json()
+      if (!r.ok) { setActionMsg(d.error || "Failed to send email"); return }
+      setActionMsg("Email sent ✓")
+      setEmailSubject(""); setEmailBody(""); setShowCustomEmail(false)
+      fetchDetail()
+    } catch {
+      setActionMsg("Network error")
+    } finally {
+      setSendingEmail(false)
+    }
+  }
+
   const fetchDetail = useCallback(async () => {
     setLoading(true)
     setError("")
@@ -269,9 +324,69 @@ export default function CustomerDetailPanel({
           )}
         </div>
 
-        {/* Phase 3 placeholder note */}
-        <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
-          Actions (send statement, send blog, send custom email) coming next.
+        {/* Actions */}
+        <div className="rounded-lg border border-gray-200 bg-white p-3">
+          <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <Send className="h-4 w-4 text-[#0B7C79]" /> Actions
+          </h4>
+
+          {!canEmail && (
+            <p className="mb-2 rounded bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              {profile?.email ? "Customer has opted out of emails." : "No email on file — add one above and save to enable sending."}
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={sendBlog}
+              disabled={!canEmail || sendingBlog}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#0B7C79] px-3 py-1.5 text-xs font-medium text-[#0B7C79] hover:bg-emerald-50 disabled:opacity-40"
+            >
+              {sendingBlog ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+              Send Latest Blog
+            </button>
+            <button
+              onClick={() => setShowCustomEmail(v => !v)}
+              disabled={!canEmail}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+            >
+              <Mail className="h-3.5 w-3.5" /> {showCustomEmail ? "Cancel" : "Send Custom Email"}
+            </button>
+          </div>
+
+          {/* Custom email form */}
+          {showCustomEmail && canEmail && (
+            <div className="mt-3 space-y-2 rounded-lg bg-gray-50 p-3">
+              <input
+                type="text"
+                value={emailSubject}
+                onChange={e => setEmailSubject(e.target.value)}
+                placeholder="Subject"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+              <textarea
+                value={emailBody}
+                onChange={e => setEmailBody(e.target.value)}
+                rows={4}
+                placeholder="Your message…"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+              <button
+                onClick={sendCustomEmail}
+                disabled={sendingEmail}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B7C79] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0a6b68] disabled:opacity-60"
+              >
+                {sendingEmail ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                Send Email
+              </button>
+            </div>
+          )}
+
+          {actionMsg && (
+            <p className={`mt-2 text-xs ${actionMsg.includes("✓") ? "text-emerald-600" : "text-red-600"}`}>
+              {actionMsg}
+            </p>
+          )}
         </div>
       </div>
     </div>
