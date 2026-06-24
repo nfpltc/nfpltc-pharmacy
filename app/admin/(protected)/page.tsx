@@ -13,11 +13,11 @@ const sidebarLinks = [
   { href: "/admin/credit-cards", label: "Credit Cards", icon: CreditCard },
   { href: "/admin/vaccines", label: "Vaccines", icon: Syringe },
   { href: "/admin/contacts", label: "Contacts", icon: MessageSquare },
-  { href: "/admin/bills", label: "Bills", icon: Receipt },
+  // { href: "/admin/bills", label: "Bills", icon: Receipt },          // hidden from sidebar (page still works via direct URL)
   { href: "/admin/jobs", label: "Jobs", icon: Briefcase },
   { href: "/admin/candidates", label: "Candidates", icon: Users },
   { href: "/admin/blogs", label: "Blog", icon: BookOpen },
-  { href: "/admin/subscribers", label: "Subscribers", icon: UsersRound },
+  // { href: "/admin/subscribers", label: "Subscribers", icon: UsersRound }, // hidden from sidebar (page still works via direct URL)
   { href: "/admin/customers", label: "Customers", icon: UsersRound },
   { href: "/admin/statements", label: "Statements", icon: FileStack },
 ]
