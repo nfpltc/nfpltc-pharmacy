@@ -189,7 +189,8 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Increase body size cap for big Excel files
-export const config = { api: { bodyParser: false } }
+// Note: App Router route handlers don't use the old `config.api.bodyParser`
+// setting (that was Pages Router). FormData is read directly via req.formData().
+// Large-file handling is controlled by runtime + maxDuration below.
 export const runtime = "nodejs"
 export const maxDuration = 60
