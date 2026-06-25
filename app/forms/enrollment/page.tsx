@@ -27,7 +27,7 @@ const schema = z
     submitterFirstName: z.string().optional(),
     submitterLastName: z.string().optional(),
     submitterPhone: z.string().optional(),
-    submitterEmail: z.string().optional(),
+    submitterEmail: z.string().min(1, "Email is required").email("Please enter a valid email"),
 
     // Resident
     lastName: z.string().min(1, "Required"),
@@ -99,7 +99,6 @@ const schema = z
       if (!vals.submitterFirstName) ctx.addIssue({ code: "custom", message: "Required", path: ["submitterFirstName"] })
       if (!vals.submitterLastName) ctx.addIssue({ code: "custom", message: "Required", path: ["submitterLastName"] })
       if (!vals.submitterPhone) ctx.addIssue({ code: "custom", message: "Required", path: ["submitterPhone"] })
-      if (!vals.submitterEmail) ctx.addIssue({ code: "custom", message: "Required", path: ["submitterEmail"] })
     }
   })
 
