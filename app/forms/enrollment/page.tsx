@@ -301,13 +301,14 @@ export default function EnrollmentFormPage() {
                       <Input {...register("submitterPhone")} placeholder={PHONE_PLACEHOLDER} />
                       <FieldError message={errors.submitterPhone?.message} />
                     </div>
-                    <div>
-                      <ReqLabel>Email</ReqLabel>
-                      <Input type="email" {...register("submitterEmail")} placeholder="you@example.com" />
-                      <FieldError message={errors.submitterEmail?.message} />
-                    </div>
                   </>
                 )}
+                {/* Email is always required — shown for both Self/Resident and Responsible Party */}
+                <div>
+                  <ReqLabel>Email</ReqLabel>
+                  <Input type="email" {...register("submitterEmail")} placeholder="you@example.com" />
+                  <FieldError message={errors.submitterEmail?.message} />
+                </div>
               </div>
             </SectionCard>
 
