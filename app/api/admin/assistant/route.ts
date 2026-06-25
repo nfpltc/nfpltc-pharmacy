@@ -6,19 +6,17 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 30
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-const GROQ_MODEL = "llama-3.3-70b-versatile"
+// 8b-instant has ~30,000 TPM on the free tier (vs 12,000 for 70b-versatile),
+// which prevents the rate-limit errors. It's plenty capable for choosing
+// which read-only database tool to call.
+const GROQ_MODEL = "llama-3.1-8b-instant"
 
-const SYSTEM_PROMPT = `You are an internal admin assistant for North Falmouth Pharmacy's website dashboard.
-You help staff look up information about customers, statements, and form submissions by calling the available tools.
+const SYSTEM_PROMPT = `You are an internal admin assistant for North Falmouth Pharmacy. You answer questions about customers, statements, and form submissions by calling the available read-only tools.
 
-IMPORTANT RULES:
-- You can ONLY read data through the provided tools. You cannot modify, delete, or create anything.
-- When a tool returns data, the actual records are shown to the admin in cards below your message. You only receive a brief summary (counts, whether something was found). Do NOT make up specific patient details you weren't given — refer the admin to the card.
-- Be concise and professional. This is an internal tool for pharmacy staff.
-- If a question can't be answered with the available tools, say so plainly.
-- For questions about specific people, use search_customer. For "how many" questions, use the count tools.
-- Never guess at medical information, dosages, or give medical advice.
-- You handle Protected Health Information — keep responses factual and professional.`
+Rules:
+- You can only READ via tools — never modify data.
+- Tool results show records to the admin in cards; you get only brief summaries. Don't invent details not in the summary — refer to the card.
+- Be concise. Never give medical advice.`
 
 // POST /api/admin/assistant
 // Body: { messages: [{role, content}] }  (conversation history)
@@ -42,9 +40,12 @@ export async function POST(req: NextRequest) {
 
     // Build the conversation. Only role + content from the client (we ignore
     // any cards the client may echo back — those stay in the UI only).
+    // Keep only the last 6 messages to limit tokens-per-minute usage on
+    // Groq's free tier (12,000 TPM).
+    const recentMessages = userMessages.slice(-6)
     const messages: any[] = [
       { role: "system", content: SYSTEM_PROMPT },
-      ...userMessages.map((m: any) => ({
+      ...recentMessages.map((m: any) => ({
         role: m.role === "assistant" ? "assistant" : "user",
         content: String(m.content || ""),
       })),
@@ -53,26 +54,48 @@ export async function POST(req: NextRequest) {
     const cards: any[] = []
     let finalText = ""
 
+    // Helper: call Groq with one automatic retry on a 429 rate limit.
+    const callGroq = async (msgs: any[]): Promise<Response> => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const r = await fetch(GROQ_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${groqKey}`,
+          },
+          body: JSON.stringify({
+            model: GROQ_MODEL,
+            messages: msgs,
+            tools: TOOL_SCHEMAS,
+            tool_choice: "auto",
+            temperature: 0.3,
+            max_tokens: 600,
+          }),
+        })
+        if (r.status === 429 && attempt === 0) {
+          // brief backoff then retry once
+          await new Promise(res => setTimeout(res, 2500))
+          continue
+        }
+        return r
+      }
+      // unreachable, but satisfies types
+      return fetch(GROQ_URL, { method: "POST" })
+    }
+
     // Function-calling loop — up to 5 rounds of tool calls
     for (let round = 0; round < 5; round++) {
-      const resp = await fetch(GROQ_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${groqKey}`,
-        },
-        body: JSON.stringify({
-          model: GROQ_MODEL,
-          messages,
-          tools: TOOL_SCHEMAS,
-          tool_choice: "auto",
-          temperature: 0.3,
-          max_tokens: 1024,
-        }),
-      })
+      const resp = await callGroq(messages)
 
       if (!resp.ok) {
         const txt = await resp.text().catch(() => "")
+        // Groq free tier has a tokens-per-minute limit. Surface a friendly,
+        // actionable message instead of the raw error.
+        if (resp.status === 429) {
+          return NextResponse.json({
+            error: "The AI is busy right now (rate limit). Please wait about 30 seconds and try again.",
+          }, { status: 429 })
+        }
         return NextResponse.json({ error: `AI service error: ${txt.slice(0, 200)}` }, { status: 500 })
       }
 
