@@ -43,17 +43,16 @@ export interface ToolResult {
 }
 
 // ── Tool schemas exposed to Groq (OpenAI function-calling format) ──────────
+// Descriptions kept short to minimize tokens-per-call (free-tier TPM limit).
 export const TOOL_SCHEMAS = [
   {
     type: "function",
     function: {
       name: "search_customer",
-      description: "Find a customer by name or account number. Returns their contact details and a summary of statements/emails on file. Use when the admin asks about a specific person.",
+      description: "Find a customer by name or account number. Returns contact details + statement count.",
       parameters: {
         type: "object",
-        properties: {
-          query: { type: "string", description: "Customer name (first, last, or both) or account number" },
-        },
+        properties: { query: { type: "string", description: "Name or account number" } },
         required: ["query"],
       },
     },
@@ -62,12 +61,10 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "count_customers",
-      description: "Count customers, optionally filtered. Filters: 'all', 'no_email' (no email on file), 'with_email', 'opted_out' (unsubscribed). Use for questions like 'how many customers have no email'.",
+      description: "Count customers. filter: all, no_email, with_email, opted_out.",
       parameters: {
         type: "object",
-        properties: {
-          filter: { type: "string", enum: ["all", "no_email", "with_email", "opted_out"], description: "Which subset to count" },
-        },
+        properties: { filter: { type: "string", enum: ["all", "no_email", "with_email", "opted_out"] } },
         required: ["filter"],
       },
     },
@@ -76,12 +73,10 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "get_customer_statements",
-      description: "List the statements on file for a specific customer account number. Returns billing periods and view links.",
+      description: "List statements for an account number.",
       parameters: {
         type: "object",
-        properties: {
-          account_number: { type: "string", description: "The customer's account number" },
-        },
+        properties: { account_number: { type: "string" } },
         required: ["account_number"],
       },
     },
@@ -90,12 +85,12 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "count_form_submissions",
-      description: "Count form submissions by type, optionally for a specific month. Types: 'enrollment', 'vaccine', 'credit_card', 'contact'. Use for 'how many enrollment forms this month'.",
+      description: "Count form submissions. form_type: enrollment, vaccine, credit_card, contact. Optional month YYYY-MM.",
       parameters: {
         type: "object",
         properties: {
           form_type: { type: "string", enum: ["enrollment", "vaccine", "credit_card", "contact"] },
-          month: { type: "string", description: "Optional month as YYYY-MM, e.g. 2026-04. Omit for all-time count." },
+          month: { type: "string" },
         },
         required: ["form_type"],
       },
@@ -105,12 +100,12 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "list_recent_submissions",
-      description: "List the most recent form submissions of a given type (default 10). Types: 'enrollment', 'vaccine', 'credit_card', 'contact'.",
+      description: "List recent form submissions. form_type: enrollment, vaccine, credit_card, contact.",
       parameters: {
         type: "object",
         properties: {
           form_type: { type: "string", enum: ["enrollment", "vaccine", "credit_card", "contact"] },
-          limit: { type: "number", description: "How many to return (max 25, default 10)" },
+          limit: { type: "number" },
         },
         required: ["form_type"],
       },
@@ -120,7 +115,7 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "count_statements_by_period",
-      description: "Show how many statements exist for each billing period. Use for 'how many statements do we have per month'.",
+      description: "Count statements per billing period.",
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
@@ -128,12 +123,10 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "get_customer_email_history",
-      description: "List the emails sent to a specific customer account (statement emails, blogs, custom emails). Use for 'what emails did we send to account X'.",
+      description: "List emails sent to an account number.",
       parameters: {
         type: "object",
-        properties: {
-          account_number: { type: "string", description: "The customer's account number" },
-        },
+        properties: { account_number: { type: "string" } },
         required: ["account_number"],
       },
     },
@@ -142,12 +135,10 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "search_submission_by_name",
-      description: "Find form submissions (enrollment, vaccine, credit card, contact) from a person by their name. Searches across all form types. Use for 'did John Smith submit any forms'.",
+      description: "Find form submissions by a person's name across all form types.",
       parameters: {
         type: "object",
-        properties: {
-          name: { type: "string", description: "First name, last name, or both" },
-        },
+        properties: { name: { type: "string" } },
         required: ["name"],
       },
     },
@@ -156,12 +147,10 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "count_submissions_by_status",
-      description: "Count form submissions of a type broken down by status (e.g. pending, processing, completed). Use for 'how many pending enrollments'.",
+      description: "Count submissions of a type grouped by status. form_type: enrollment, vaccine, credit_card, contact.",
       parameters: {
         type: "object",
-        properties: {
-          form_type: { type: "string", enum: ["enrollment", "vaccine", "credit_card", "contact"] },
-        },
+        properties: { form_type: { type: "string", enum: ["enrollment", "vaccine", "credit_card", "contact"] } },
         required: ["form_type"],
       },
     },
@@ -170,12 +159,10 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "get_statement_search_activity",
-      description: "Show recent statement-search activity from the public statements page — who searched and whether they found a statement. Use for 'who has been looking up statements'.",
+      description: "Recent statement-search activity from the public page (who searched, found or not).",
       parameters: {
         type: "object",
-        properties: {
-          limit: { type: "number", description: "How many recent searches to show (max 25, default 10)" },
-        },
+        properties: { limit: { type: "number" } },
         required: [],
       },
     },
@@ -184,7 +171,7 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "get_blog_stats",
-      description: "Get blog statistics — total published posts and the most recent one. Use for 'how many blogs do we have' or 'what's the latest blog'.",
+      description: "Blog count and latest post title.",
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
