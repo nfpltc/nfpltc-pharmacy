@@ -124,6 +124,70 @@ export const TOOL_SCHEMAS = [
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_customer_email_history",
+      description: "List the emails sent to a specific customer account (statement emails, blogs, custom emails). Use for 'what emails did we send to account X'.",
+      parameters: {
+        type: "object",
+        properties: {
+          account_number: { type: "string", description: "The customer's account number" },
+        },
+        required: ["account_number"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_submission_by_name",
+      description: "Find form submissions (enrollment, vaccine, credit card, contact) from a person by their name. Searches across all form types. Use for 'did John Smith submit any forms'.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "First name, last name, or both" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "count_submissions_by_status",
+      description: "Count form submissions of a type broken down by status (e.g. pending, processing, completed). Use for 'how many pending enrollments'.",
+      parameters: {
+        type: "object",
+        properties: {
+          form_type: { type: "string", enum: ["enrollment", "vaccine", "credit_card", "contact"] },
+        },
+        required: ["form_type"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_statement_search_activity",
+      description: "Show recent statement-search activity from the public statements page — who searched and whether they found a statement. Use for 'who has been looking up statements'.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "How many recent searches to show (max 25, default 10)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_blog_stats",
+      description: "Get blog statistics — total published posts and the most recent one. Use for 'how many blogs do we have' or 'what's the latest blog'.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
 ]
 
 // ── Tool executors ─────────────────────────────────────────────────────────
@@ -270,6 +334,126 @@ export async function executeTool(name: string, args: any): Promise<ToolResult> 
       return {
         ai_summary: `Statements per billing period — ${summary || "none"}.`,
         display: { type: "period_counts", data: sorted.map(([period, count]) => ({ period, count })) },
+      }
+    }
+
+    // ── Customer email history (semi-PHI → card) ─────────────────────────
+    case "get_customer_email_history": {
+      const account = String(args.account_number || "").trim()
+      if (!account) return { ai_summary: "No account number provided." }
+
+      // Pull from both statement_email_log and customer_email_log
+      const [stmtEmails, custEmails] = await Promise.all([
+        client.from("statement_email_log")
+          .select("billing_period, email_to, status, sent_at")
+          .eq("account_number", account)
+          .order("sent_at", { ascending: false })
+          .limit(50),
+        client.from("customer_email_log")
+          .select("email_type, subject, status, sent_at")
+          .eq("account_number", account)
+          .order("sent_at", { ascending: false })
+          .limit(50)
+          .then((r: any) => r, () => ({ data: [] })),
+      ])
+
+      const combined = [
+        ...(stmtEmails.data || []).map((e: any) => ({
+          type: "statement", subject: `Statement ${e.billing_period || ""}`, status: e.status, sent_at: e.sent_at,
+        })),
+        ...((custEmails as any).data || []).map((e: any) => ({
+          type: e.email_type || "custom", subject: e.subject || "", status: e.status, sent_at: e.sent_at,
+        })),
+      ].sort((a, b) => (b.sent_at || "").localeCompare(a.sent_at || ""))
+
+      if (combined.length === 0) {
+        return { ai_summary: `No emails have been sent to account ${account}.` }
+      }
+      return {
+        ai_summary: `${combined.length} emails have been sent to account ${account}. They are listed for the admin.`,
+        display: { type: "email_history", data: combined },
+      }
+    }
+
+    // ── Search submissions by name (PHI → card) ──────────────────────────
+    case "search_submission_by_name": {
+      const name = String(args.name || "").trim()
+      if (!name) return { ai_summary: "No name provided." }
+
+      const found: any[] = []
+      for (const [type, table] of Object.entries(FORM_TABLES)) {
+        const { data } = await client
+          .from(table)
+          .select("*")
+          .or(`first_name.ilike.%${name}%,last_name.ilike.%${name}%`)
+          .order("created_at", { ascending: false })
+          .limit(10)
+        for (const row of (data || [])) found.push({ form_type: type, ...row })
+      }
+
+      if (found.length === 0) {
+        return { ai_summary: `No form submissions found for "${name}".` }
+      }
+      // Sort newest first across all types
+      found.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
+      return {
+        ai_summary: `Found ${found.length} form submissions matching "${name}" across all form types. Listed for the admin.`,
+        display: { type: "submission_list", data: { form_type: "matching", rows: found } },
+      }
+    }
+
+    // ── Submission counts by status (safe — numbers) ─────────────────────
+    case "count_submissions_by_status": {
+      const formType = String(args.form_type || "")
+      const table = FORM_TABLES[formType]
+      if (!table) return { ai_summary: `Unknown form type "${formType}".` }
+
+      const rows = await fetchAll(client, table, "status")
+      const byStatus: Record<string, number> = {}
+      for (const r of rows) {
+        const s = r.status || "unknown"
+        byStatus[s] = (byStatus[s] || 0) + 1
+      }
+      const summary = Object.entries(byStatus).map(([s, n]) => `${n} ${s}`).join(", ")
+      return { ai_summary: `${formType} submissions by status: ${summary || "none"}.` }
+    }
+
+    // ── Statement search activity (PHI → card) ───────────────────────────
+    case "get_statement_search_activity": {
+      const limit = Math.min(25, Math.max(1, parseInt(args.limit) || 10))
+      const { data } = await client
+        .from("statement_viewer_log")
+        .select("name, account_number_attempted, statement_viewed, searched_at, ip_address")
+        .order("searched_at", { ascending: false })
+        .limit(limit)
+
+      if (!data || data.length === 0) {
+        return { ai_summary: "No statement search activity recorded yet." }
+      }
+      const foundCount = data.filter((d: any) => d.statement_viewed).length
+      return {
+        ai_summary: `Showing the ${data.length} most recent statement searches (${foundCount} found a match). Listed for the admin.`,
+        display: { type: "search_activity", data },
+      }
+    }
+
+    // ── Blog stats (safe — counts + latest title) ────────────────────────
+    case "get_blog_stats": {
+      const { count } = await client
+        .from("blog_posts")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "published")
+      const { data: latest } = await client
+        .from("blog_posts")
+        .select("title, published_at")
+        .eq("status", "published")
+        .order("published_at", { ascending: false })
+        .limit(1)
+      const latestTitle = latest?.[0]?.title
+      return {
+        ai_summary: latestTitle
+          ? `There are ${count ?? 0} published blog posts. The most recent is "${latestTitle}".`
+          : `There are ${count ?? 0} published blog posts.`,
       }
     }
 
