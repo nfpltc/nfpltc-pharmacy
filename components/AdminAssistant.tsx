@@ -10,9 +10,10 @@ interface Msg { role: "user" | "assistant"; content: string; cards?: Card[] }
 
 const SUGGESTIONS = [
   "How many customers have no email?",
-  "Show me how many statements per month",
-  "How many enrollment forms this month?",
-  "Look up customer ACOSTA",
+  "How many pending enrollments?",
+  "Who has been searching for statements?",
+  "Did anyone named Smith submit a form?",
+  "What's the latest blog post?",
 ]
 
 export default function AdminAssistant() {
@@ -164,6 +165,10 @@ function CardRenderer({ card }: { card: Card }) {
       return <SubmissionListCard formType={card.data.form_type} rows={card.data.rows} />
     case "period_counts":
       return <PeriodCountsCard rows={card.data} />
+    case "email_history":
+      return <EmailHistoryCard rows={card.data} />
+    case "search_activity":
+      return <SearchActivityCard rows={card.data} />
     default:
       return null
   }
@@ -220,16 +225,72 @@ function StatementListCard({ rows }: { rows: any[] }) {
 function SubmissionListCard({ formType, rows }: { formType: string; rows: any[] }) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
-      <div className="mb-2 font-semibold capitalize text-gray-900">{formType} submissions ({rows.length})</div>
+      <div className="mb-2 font-semibold capitalize text-gray-900">
+        {formType === "matching" ? "Matching submissions" : `${formType} submissions`} ({rows.length})
+      </div>
       <div className="max-h-56 space-y-1 overflow-y-auto">
         {rows.map((s: any, i: number) => (
           <div key={s.id || i} className="rounded bg-gray-50 px-2 py-1.5 text-xs">
-            <div className="font-medium text-gray-800">
-              {s.first_name || s.name || s.patient_name || s.full_name || "Submission"} {s.last_name || ""}
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-gray-800">
+                {[s.first_name, s.last_name].filter(Boolean).join(" ") || s.cardholder || "Submission"}
+              </span>
+              {s.form_type && (
+                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] capitalize text-emerald-700">
+                  {s.form_type.replace("_", " ")}
+                </span>
+              )}
             </div>
             <div className="text-gray-500">
               {s.email && <span>{s.email} · </span>}
+              {s.status && <span className="capitalize">{s.status} · </span>}
               {s.created_at && <span>{formatDate(s.created_at)}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function EmailHistoryCard({ rows }: { rows: any[] }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
+      <div className="mb-2 font-semibold text-gray-900">Email history ({rows.length})</div>
+      <div className="max-h-48 space-y-1 overflow-y-auto">
+        {rows.map((e: any, i: number) => (
+          <div key={i} className="flex items-center justify-between rounded bg-gray-50 px-2 py-1 text-xs">
+            <div>
+              <span className="capitalize text-gray-700">{e.type}</span>
+              {e.subject && <span className="text-gray-500"> · {e.subject}</span>}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={e.status === "sent" ? "text-emerald-600" : "text-gray-400"}>{e.status || "—"}</span>
+              {e.sent_at && <span className="text-gray-400">{formatDate(e.sent_at)}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function SearchActivityCard({ rows }: { rows: any[] }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm">
+      <div className="mb-2 font-semibold text-gray-900">Recent statement searches ({rows.length})</div>
+      <div className="max-h-56 space-y-1 overflow-y-auto">
+        {rows.map((s: any, i: number) => (
+          <div key={i} className="rounded bg-gray-50 px-2 py-1.5 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="font-medium text-gray-800">{s.name || "—"}</span>
+              {s.statement_viewed
+                ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-700">Found</span>
+                : <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700">No match</span>}
+            </div>
+            <div className="text-gray-500">
+              {s.account_number_attempted && <span className="font-mono">Acct {s.account_number_attempted} · </span>}
+              {s.searched_at && <span>{formatDate(s.searched_at)}</span>}
             </div>
           </div>
         ))}
