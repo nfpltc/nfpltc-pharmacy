@@ -6,10 +6,11 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 30
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-// 8b-instant has ~30,000 TPM on the free tier (vs 12,000 for 70b-versatile),
-// which prevents the rate-limit errors. It's plenty capable for choosing
-// which read-only database tool to call.
-const GROQ_MODEL = "llama-3.1-8b-instant"
+// 70b-versatile is reliable at structured tool/function calling. The 8b model
+// tends to emit tool calls as plain text instead of using the tool-call API,
+// so we use 70b and keep token usage low (compact schemas, short history) to
+// stay under the 12,000 TPM free-tier limit.
+const GROQ_MODEL = "llama-3.3-70b-versatile"
 
 const SYSTEM_PROMPT = `You are an internal admin assistant for North Falmouth Pharmacy. You answer questions about customers, statements, and form submissions by calling the available read-only tools.
 
@@ -141,6 +142,15 @@ export async function POST(req: NextRequest) {
       finalText = msg.content || ""
       break
     }
+
+    // Safety net: if the model leaked raw function-call syntax as plain text
+    // (instead of using the tool-call API), strip it so the user never sees
+    // things like "<count_customers>{...}</function>".
+    finalText = finalText
+      .replace(/<[a-z_]+>\s*\{[^}]*\}\s*<\/function>/gi, "")
+      .replace(/<\/?function[^>]*>/gi, "")
+      .replace(/<function[^>]*>/gi, "")
+      .trim()
 
     if (!finalText) {
       finalText = cards.length > 0
