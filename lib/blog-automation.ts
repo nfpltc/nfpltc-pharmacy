@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import { generatePost, pickNextTopic } from "@/lib/blog-generator"
+import type { BlogTopic } from "@/lib/blog-topics"
 
 // Shared blog-generation logic used by both the scheduled cron and the
 // manual "Generate now" button. Picks a fresh topic, generates content +
@@ -29,20 +30,42 @@ export interface GenerateResult {
   error?: string
 }
 
+// Build a BlogTopic from a free-text topic the admin typed. Used by the
+// "Generate Now" button when the admin supplies their own subject.
+function buildCustomTopic(input: string): BlogTopic {
+  const text = input.trim().slice(0, 200)
+  // Derive a simple image search query from the topic words
+  const imageQuery = text.toLowerCase().replace(/[^a-z0-9 ]/g, "").split(/\s+/).slice(0, 4).join(" ") || "pharmacy health"
+  return {
+    id: `custom-${Date.now()}`,
+    category: "Education",
+    title_seed: text,
+    angle: `Write a helpful, professional article on this topic for a long-term-care pharmacy audience: ${text}`,
+    image_query: imageQuery,
+    tags: ["pharmacy", "health"],
+  }
+}
+
 // Generate one blog post. `autoPublish` decides published vs draft.
-export async function generateOneBlogPost(autoPublish: boolean): Promise<GenerateResult> {
+// If `customTopic` is provided, it's used instead of picking from the bank.
+export async function generateOneBlogPost(autoPublish: boolean, customTopic?: string): Promise<GenerateResult> {
   const sb = admin()
 
-  // Avoid repeating a recent topic
-  const { data: recentRows } = await sb
-    .from("blog_posts")
-    .select("generated_topic_id, created_at")
-    .not("generated_topic_id", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(35)
-  const recentIds: string[] = (recentRows || []).map((r: any) => r.generated_topic_id).filter(Boolean)
+  let topic: BlogTopic
+  if (customTopic && customTopic.trim()) {
+    topic = buildCustomTopic(customTopic)
+  } else {
+    // Avoid repeating a recent topic
+    const { data: recentRows } = await sb
+      .from("blog_posts")
+      .select("generated_topic_id, created_at")
+      .not("generated_topic_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(35)
+    const recentIds: string[] = (recentRows || []).map((r: any) => r.generated_topic_id).filter(Boolean)
+    topic = pickNextTopic(recentIds)
+  }
 
-  const topic = pickNextTopic(recentIds)
   const post = await generatePost(topic)
 
   // Unique slug
