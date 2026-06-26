@@ -97,7 +97,11 @@ export async function POST(req: NextRequest) {
             error: "The AI is busy right now (rate limit). Please wait about 30 seconds and try again.",
           }, { status: 429 })
         }
-        return NextResponse.json({ error: `AI service error: ${txt.slice(0, 200)}` }, { status: 500 })
+        // Tool-call validation or other 4xx — give a clean message, log details
+        console.error("Groq error:", resp.status, txt.slice(0, 500))
+        return NextResponse.json({
+          error: "I had trouble with that request. Please try rephrasing your question.",
+        }, { status: 500 })
       }
 
       const data = await resp.json()
