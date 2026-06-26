@@ -28,6 +28,7 @@ export default function BlogAutomationPanel({ onGenerated }: { onGenerated?: () 
   const [saving, setSaving] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [msg, setMsg] = useState("")
+  const [customTopic, setCustomTopic] = useState("")
 
   const load = useCallback(async () => {
     try {
@@ -65,11 +66,12 @@ export default function BlogAutomationPanel({ onGenerated }: { onGenerated?: () 
       const r = await fetch("/api/admin/blog-settings/generate-now", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify(customTopic.trim() ? { topic: customTopic.trim() } : {}),
       })
       const d = await r.json()
       if (!r.ok) { setMsg(d.error || "Generation failed"); return }
       setMsg(`Created "${d.title}" (${d.status}) ✓`)
+      setCustomTopic("")
       load()
       onGenerated?.()
     } catch {
@@ -177,9 +179,27 @@ export default function BlogAutomationPanel({ onGenerated }: { onGenerated?: () 
             disabled={generating}
             className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-60"
           >
-            {generating ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</> : <><Sparkles className="h-3.5 w-3.5" /> Generate Now</>}
+            {generating
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</>
+              : <><Sparkles className="h-3.5 w-3.5" /> {customTopic.trim() ? "Generate This Topic" : "Generate Now"}</>}
           </button>
         </div>
+      </div>
+
+      {/* Custom topic input */}
+      <div className="mt-3">
+        <label className="mb-1 block text-xs font-medium text-gray-500">
+          Custom topic (optional) — leave blank to auto-pick from the topic bank
+        </label>
+        <input
+          type="text"
+          value={customTopic}
+          onChange={e => setCustomTopic(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !generating) generateNow() }}
+          placeholder="e.g. How to safely store insulin at home"
+          disabled={generating}
+          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
       </div>
 
       {/* Stats + message */}
