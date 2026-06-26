@@ -49,7 +49,7 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "search_customer",
-      description: "Find a customer by name or account number. Returns contact details + statement count.",
+      description: "Look up a specific customer/person by name or account number (e.g. 'find acosta', 'look up account 10011791'). Returns their contact details and statement count.",
       parameters: {
         type: "object",
         properties: { query: { type: "string", description: "Name or account number" } },
@@ -73,7 +73,7 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "get_customer_statements",
-      description: "List statements for an account number.",
+      description: "Get the statements/bills on file for ONE specific customer, by account number. Use for 'show me acosta's statements'. If you only have a name, call search_customer first to get the account number.",
       parameters: {
         type: "object",
         properties: { account_number: { type: "string" } },
@@ -105,7 +105,7 @@ export const TOOL_SCHEMAS = [
         type: "object",
         properties: {
           form_type: { type: "string", enum: ["enrollment", "vaccine", "credit_card", "contact"] },
-          limit: { type: "number" },
+          limit: { type: ["integer", "string"], description: "How many to return" },
         },
         required: ["form_type"],
       },
@@ -159,10 +159,10 @@ export const TOOL_SCHEMAS = [
     type: "function",
     function: {
       name: "get_statement_search_activity",
-      description: "Recent statement-search activity from the public page (who searched, found or not).",
+      description: "Audit log of who used the PUBLIC statement-lookup page (visitor names + whether they found a match). NOT for a specific customer's statements — use get_customer_statements for that.",
       parameters: {
         type: "object",
-        properties: { limit: { type: "number" } },
+        properties: { limit: { type: ["integer", "string"], description: "How many recent searches" } },
         required: [],
       },
     },
