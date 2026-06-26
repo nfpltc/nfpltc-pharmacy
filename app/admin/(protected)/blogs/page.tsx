@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
+import BlogAutomationPanel from "@/components/BlogAutomationPanel"
 
 interface Post {
   id: string; title: string; slug: string; excerpt: string; content: string
@@ -102,6 +103,8 @@ export default function AdminBlogPage() {
 
       <section className="mx-auto w-full max-w-6xl px-6 py-8">
         {msg && <div className={`mb-6 flex items-center justify-between rounded-lg border p-4 text-sm ${msg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}><span>{msg.text}</span><button onClick={() => setMsg(null)}>×</button></div>}
+
+        <BlogAutomationPanel onGenerated={() => load()} />
 
         <div className="mb-6 grid grid-cols-3 gap-4">
           {[{ l: "Total", v: c.t, cl: "text-gray-900" }, { l: "Published", v: c.p, cl: "text-emerald-600" }, { l: "Drafts", v: c.d, cl: "text-gray-500" }].map(s =>
