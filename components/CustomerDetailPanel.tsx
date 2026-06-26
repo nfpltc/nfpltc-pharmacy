@@ -1,6 +1,6 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
-import { Mail, FileText, Save, Loader2, MapPin, Phone, Calendar, StickyNote, Send } from "lucide-react"
+import { Mail, FileText, Save, Loader2, MapPin, Phone, Calendar, StickyNote, Send, Sparkles, Wand2 } from "lucide-react"
 
 // Shown inline when an admin clicks a customer row to expand it.
 // Three sections: editable contact profile, statement history, email history.
@@ -67,6 +67,32 @@ export default function CustomerDetailPanel({
   const [emailSubject, setEmailSubject] = useState("")
   const [emailBody, setEmailBody] = useState("")
   const [sendingEmail, setSendingEmail] = useState(false)
+  const [polishing, setPolishing] = useState(false)
+
+  // AI: polish the current draft, or write from a short instruction
+  const aiAssist = async (mode: "polish" | "write") => {
+    if (!emailBody.trim()) {
+      setActionMsg(mode === "write" ? "Type a quick note of what to say first" : "Type a draft to polish first")
+      return
+    }
+    setPolishing(true)
+    setActionMsg("")
+    try {
+      const r = await fetch("/api/admin/customers/polish-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft: emailBody, subject: emailSubject, mode }),
+      })
+      const d = await r.json()
+      if (!r.ok) { setActionMsg(d.error || "AI could not help right now"); return }
+      if (d.subject) setEmailSubject(d.subject)
+      if (d.body) setEmailBody(d.body)
+    } catch {
+      setActionMsg("Network error")
+    } finally {
+      setPolishing(false)
+    }
+  }
 
   const canEmail = Boolean(profile?.email && profile?.email_opt_in)
 
@@ -368,12 +394,35 @@ export default function CustomerDetailPanel({
                 value={emailBody}
                 onChange={e => setEmailBody(e.target.value)}
                 rows={4}
-                placeholder="Your message…"
+                placeholder="Type a rough draft or a quick note of what to say, then use AI to polish it…"
                 className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
               />
+
+              {/* AI writing assistant */}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => aiAssist("polish")}
+                  disabled={polishing || sendingEmail}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+                  title="Clean up grammar and make it professional"
+                >
+                  {polishing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  Polish with AI
+                </button>
+                <button
+                  onClick={() => aiAssist("write")}
+                  disabled={polishing || sendingEmail}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-purple-300 bg-white px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-50 disabled:opacity-50"
+                  title="Turn a short note into a full email"
+                >
+                  <Wand2 className="h-3.5 w-3.5" /> Write for me
+                </button>
+                <span className="text-[11px] text-gray-400">AI drafts — review before sending</span>
+              </div>
+
               <button
                 onClick={sendCustomEmail}
-                disabled={sendingEmail}
+                disabled={sendingEmail || polishing}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B7C79] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0a6b68] disabled:opacity-60"
               >
                 {sendingEmail ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
