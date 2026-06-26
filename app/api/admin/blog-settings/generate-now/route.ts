@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       autoPublish = data?.auto_publish ?? true
     }
 
-    const result = await generateOneBlogPost(autoPublish)
+    const result = await generateOneBlogPost(autoPublish, body.topic ? String(body.topic) : undefined)
     if (!result.success) {
       return NextResponse.json({ error: result.error || "Generation failed" }, { status: 500 })
     }
