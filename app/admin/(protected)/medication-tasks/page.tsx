@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { ArrowLeft, Pill, Plus, X, Loader2, CheckCircle2, Clock, Ban, Trash2, Mail, Users } from "lucide-react"
+import { ArrowLeft, Pill, Plus, X, Loader2, CheckCircle2, Clock, Ban, Trash2, Mail, Users, Search, Sparkles } from "lucide-react"
 
 interface Recipient { email: string; name?: string; notified_at?: string; clicked_at?: string }
 interface Task {
@@ -9,6 +9,8 @@ interface Task {
   patient_name: string
   patient_account: string | null
   medication: string
+  medications?: { name: string; dose?: string; due_at?: string; instructions?: string }[]
+  comments?: string | null
   instructions: string | null
   priority: string
   status: string
@@ -133,8 +135,21 @@ function TaskCard({ t, onComplete, onCancel }: { t: Task; onComplete: () => void
             <StatusBadge status={t.status} />
           </div>
           <h3 className="mt-1.5 font-semibold text-gray-900">{t.patient_name}{t.patient_account ? ` · ${t.patient_account}` : ""}</h3>
-          <p className="text-sm text-gray-700"><span className="text-gray-500">Medication:</span> {t.medication}</p>
-          {t.instructions && <p className="mt-0.5 text-sm text-gray-600"><span className="text-gray-500">Instructions:</span> {t.instructions}</p>}
+          {Array.isArray(t.medications) && t.medications.length > 0 ? (
+            <ul className="mt-1 space-y-0.5">
+              {t.medications.map((m: any, i: number) => (
+                <li key={i} className="text-sm text-gray-700">
+                  <span className="font-medium">{m.name}</span>
+                  {m.dose ? ` · ${m.dose}` : ""}
+                  {m.due_at ? <span className="text-gray-500"> · {new Date(m.due_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span> : ""}
+                  {m.instructions ? <span className="text-gray-500"> · {m.instructions}</span> : ""}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-gray-700"><span className="text-gray-500">Medication:</span> {t.medication}</p>
+          )}
+          {t.comments && <p className="mt-1 text-sm text-gray-600"><span className="text-gray-500">Note:</span> {t.comments}</p>}
 
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
             <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" /> {t.recipients?.length || 0} notified</span>
@@ -171,17 +186,50 @@ function StatusBadge({ status }: { status: string }) {
   return <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700"><Clock className="h-3 w-3" /> Pending</span>
 }
 
+interface MedLine { name: string; dose: string; due_at: string; instructions: string }
+
 function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: (msg: string) => void }) {
   const [patient, setPatient] = useState("")
   const [account, setAccount] = useState("")
-  const [medication, setMedication] = useState("")
-  const [instructions, setInstructions] = useState("")
+  const [meds, setMeds] = useState<MedLine[]>([{ name: "", dose: "", due_at: "", instructions: "" }])
+  const [comments, setComments] = useState("")
   const [urgent, setUrgent] = useState(false)
   const [extraRecipients, setExtraRecipients] = useState<{ email: string; name: string }[]>([])
   const [newEmail, setNewEmail] = useState("")
   const [newName, setNewName] = useState("")
   const [saving, setSaving] = useState(false)
+  const [polishing, setPolishing] = useState(false)
   const [error, setError] = useState("")
+
+  // CRM customer search
+  const [custQuery, setCustQuery] = useState("")
+  const [custResults, setCustResults] = useState<any[]>([])
+  const [searching, setSearching] = useState(false)
+  const [showCustResults, setShowCustResults] = useState(false)
+
+  const searchCustomers = async (q: string) => {
+    setCustQuery(q)
+    if (q.trim().length < 2) { setCustResults([]); setShowCustResults(false); return }
+    setSearching(true)
+    try {
+      const r = await fetch(`/api/admin/customers?search=${encodeURIComponent(q.trim())}`)
+      const d = await r.json()
+      setCustResults(d.customers || d.data || [])
+      setShowCustResults(true)
+    } catch { /* ignore */ }
+    finally { setSearching(false) }
+  }
+  const pickCustomer = (c: any) => {
+    setPatient(`${c.first_name} ${c.last_name}`.trim())
+    setAccount(c.account_number || "")
+    setCustQuery(`${c.last_name?.toUpperCase()}, ${c.first_name}`)
+    setShowCustResults(false)
+  }
+
+  const updateMed = (i: number, key: keyof MedLine, val: string) =>
+    setMeds(prev => prev.map((m, j) => j === i ? { ...m, [key]: val } : m))
+  const addMed = () => setMeds(prev => [...prev, { name: "", dose: "", due_at: "", instructions: "" }])
+  const removeMed = (i: number) => setMeds(prev => prev.length > 1 ? prev.filter((_, j) => j !== i) : prev)
 
   const addRecipient = () => {
     const e = newEmail.trim().toLowerCase()
@@ -190,15 +238,36 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     setNewEmail(""); setNewName(""); setError("")
   }
 
+  const polishComment = async () => {
+    if (!comments.trim()) { setError("Type a comment first"); return }
+    setPolishing(true); setError("")
+    try {
+      const r = await fetch("/api/admin/customers/polish-email", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft: comments, mode: "polish" }),
+      })
+      const d = await r.json()
+      if (!r.ok) { setError(d.error || "AI could not help"); return }
+      if (d.body) setComments(d.body)
+    } catch { setError("Network error") }
+    finally { setPolishing(false) }
+  }
+
   const submit = async () => {
-    if (!patient.trim() || !medication.trim()) { setError("Patient and medication are required"); return }
+    const cleanMeds = meds.filter(m => m.name.trim())
+    if (!patient.trim() || cleanMeds.length === 0) { setError("Patient and at least one medication are required"); return }
     setSaving(true); setError("")
     try {
       const r = await fetch("/api/admin/medication-tasks", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          patient_name: patient, patient_account: account, medication, instructions,
-          priority: urgent ? "urgent" : "normal", recipients: extraRecipients,
+          patient_name: patient, patient_account: account,
+          medications: cleanMeds.map(m => ({
+            name: m.name, dose: m.dose || null,
+            due_at: m.due_at ? new Date(m.due_at).toISOString() : null,
+            instructions: m.instructions || null,
+          })),
+          comments, priority: urgent ? "urgent" : "normal", recipients: extraRecipients,
         }),
       })
       const d = await r.json()
@@ -215,12 +284,76 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   return (
     <Modal onClose={onClose} title="New Medication Task">
       <div className="space-y-3">
+        {/* CRM customer search */}
+        <div className="relative">
+          <label className="mb-1 block text-xs font-medium text-gray-500">Find customer (CRM) — optional</label>
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+            <input
+              value={custQuery}
+              onChange={e => searchCustomers(e.target.value)}
+              placeholder="Search name or account…"
+              className={`${inputCls} w-full pl-9`}
+            />
+            {searching && <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-gray-400" />}
+          </div>
+          {showCustResults && custResults.length > 0 && (
+            <div className="absolute z-10 mt-1 max-h-44 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+              {custResults.slice(0, 8).map((c: any) => (
+                <button key={c.account_number} onClick={() => pickCustomer(c)}
+                  className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50">
+                  <span className="font-medium">{c.last_name?.toUpperCase()}, {c.first_name}</span>
+                  <span className="text-gray-400"> · {c.account_number}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-2">
           <Field label="Patient Name *"><input value={patient} onChange={e => setPatient(e.target.value)} className={inputCls} placeholder="Jane Doe" /></Field>
-          <Field label="Account # (optional)"><input value={account} onChange={e => setAccount(e.target.value)} className={inputCls} placeholder="10011791" /></Field>
+          <Field label="Account #"><input value={account} onChange={e => setAccount(e.target.value)} className={inputCls} placeholder="10011791" /></Field>
         </div>
-        <Field label="Medication *"><input value={medication} onChange={e => setMedication(e.target.value)} className={inputCls} placeholder="Metformin 500mg" /></Field>
-        <Field label="Instructions (optional)"><textarea value={instructions} onChange={e => setInstructions(e.target.value)} rows={2} className={inputCls} placeholder="Take with food, twice daily…" /></Field>
+
+        {/* Medication lines */}
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500">Medications *</label>
+          <div className="space-y-2">
+            {meds.map((m, i) => (
+              <div key={i} className="rounded-lg border border-gray-200 bg-gray-50 p-2.5">
+                <div className="flex gap-2">
+                  <input value={m.name} onChange={e => updateMed(i, "name", e.target.value)} placeholder="Medication name" className={`${inputCls} flex-1`} />
+                  <input value={m.dose} onChange={e => updateMed(i, "dose", e.target.value)} placeholder="Dose" className={`${inputCls} w-24`} />
+                  {meds.length > 1 && <button onClick={() => removeMed(i)} className="px-1 text-gray-400 hover:text-red-500"><X className="h-4 w-4" /></button>}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-[11px] text-gray-400">Date / time (optional)</label>
+                    <input type="datetime-local" value={m.due_at} onChange={e => updateMed(i, "due_at", e.target.value)} className={`${inputCls} w-full`} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[11px] text-gray-400">Instructions (optional)</label>
+                    <input value={m.instructions} onChange={e => updateMed(i, "instructions", e.target.value)} placeholder="with food…" className={`${inputCls} w-full`} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <button onClick={addMed} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#0B7C79] hover:underline">
+            <Plus className="h-3.5 w-3.5" /> Add another medication
+          </button>
+        </div>
+
+        {/* Comments + AI */}
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500">Comment to include in the email (optional)</label>
+          <textarea value={comments} onChange={e => setComments(e.target.value)} rows={2} className={`${inputCls} w-full`} placeholder="Any note for the recipients…" />
+          <button onClick={polishComment} disabled={polishing}
+            className="mt-1 inline-flex items-center gap-1.5 rounded-lg border border-purple-300 bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-50">
+            {polishing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Polish with AI
+          </button>
+        </div>
+
         <label className="flex items-center gap-2 text-sm text-gray-700">
           <input type="checkbox" checked={urgent} onChange={e => setUrgent(e.target.checked)} /> Mark as urgent
         </label>
