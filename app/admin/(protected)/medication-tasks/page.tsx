@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { ArrowLeft, Pill, Plus, X, Loader2, CheckCircle2, Clock, Ban, Trash2, Mail, Users, Search, Sparkles } from "lucide-react"
+import { ArrowLeft, Pill, Plus, X, Loader2, CheckCircle2, Clock, Ban, Trash2, Mail, Users, Search, Sparkles, Pencil } from "lucide-react"
 
 interface Recipient { email: string; name?: string; notified_at?: string; clicked_at?: string }
 interface Task {
@@ -28,6 +28,7 @@ export default function MedicationTasksPage() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [showDefaults, setShowDefaults] = useState(false)
+  const [editing, setEditing] = useState<Task | null>(null)
   const [msg, setMsg] = useState("")
 
   const load = useCallback(async () => {
@@ -56,6 +57,11 @@ export default function MedicationTasksPage() {
       body: JSON.stringify({ id, action: "cancel" }),
     })
     if (r.ok) { setMsg("Task cancelled"); load() }
+  }
+  const deleteTask = async (id: string) => {
+    if (!confirm("Permanently delete this task? This cannot be undone.")) return
+    const r = await fetch(`/api/admin/medication-tasks?id=${id}`, { method: "DELETE" })
+    if (r.ok) { setMsg("Task deleted"); load() }
   }
 
   return (
@@ -113,18 +119,19 @@ export default function MedicationTasksPage() {
           <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-500">No {filter} tasks.</div>
         ) : (
           <div className="space-y-3">
-            {tasks.map(t => <TaskCard key={t.id} t={t} onComplete={() => markComplete(t.id)} onCancel={() => cancelTask(t.id)} />)}
+            {tasks.map(t => <TaskCard key={t.id} t={t} onComplete={() => markComplete(t.id)} onCancel={() => cancelTask(t.id)} onEdit={() => setEditing(t)} onDelete={() => deleteTask(t.id)} />)}
           </div>
         )}
       </section>
 
       {showForm && <NewTaskModal onClose={() => setShowForm(false)} onCreated={(m) => { setShowForm(false); setMsg(m); setFilter("pending"); load() }} />}
+      {editing && <EditTaskModal task={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setMsg("Task updated ✓"); load() }} />}
       {showDefaults && <DefaultsModal onClose={() => setShowDefaults(false)} />}
     </main>
   )
 }
 
-function TaskCard({ t, onComplete, onCancel }: { t: Task; onComplete: () => void; onCancel: () => void }) {
+function TaskCard({ t, onComplete, onCancel, onEdit, onDelete }: { t: Task; onComplete: () => void; onCancel: () => void; onEdit: () => void; onDelete: () => void }) {
   const clicked = t.recipients?.filter(r => r.clicked_at).length || 0
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -165,16 +172,24 @@ function TaskCard({ t, onComplete, onCancel }: { t: Task; onComplete: () => void
           )}
         </div>
 
-        {t.status === "pending" && (
-          <div className="flex gap-2">
-            <button onClick={onComplete} className="inline-flex items-center gap-1 rounded-lg bg-[#0B7C79] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0a6b68]">
-              <CheckCircle2 className="h-3.5 w-3.5" /> Mark Done
-            </button>
-            <button onClick={onCancel} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">
-              <Ban className="h-3.5 w-3.5" /> Cancel
-            </button>
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {t.status === "pending" && (
+            <>
+              <button onClick={onComplete} className="inline-flex items-center gap-1 rounded-lg bg-[#0B7C79] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0a6b68]">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Mark Done
+              </button>
+              <button onClick={onCancel} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">
+                <Ban className="h-3.5 w-3.5" /> Cancel
+              </button>
+            </>
+          )}
+          <button onClick={onEdit} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50" title="Edit">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={onDelete} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-red-500 hover:bg-red-50" title="Delete">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -384,6 +399,113 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm">Cancel</button>
           <button onClick={submit} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B7C79] px-4 py-2 text-sm font-medium text-white hover:bg-[#0a6b68] disabled:opacity-60">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Create & Notify
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function EditTaskModal({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved: () => void }) {
+  const [patient, setPatient] = useState(task.patient_name)
+  const [account, setAccount] = useState(task.patient_account || "")
+  const [meds, setMeds] = useState<MedLine[]>(
+    Array.isArray(task.medications) && task.medications.length > 0
+      ? task.medications.map(m => ({
+          name: m.name || "",
+          dose: m.dose || "",
+          due_at: m.due_at ? m.due_at.slice(0, 16) : "",  // datetime-local needs YYYY-MM-DDTHH:MM
+          instructions: m.instructions || "",
+        }))
+      : [{ name: task.medication || "", dose: "", due_at: "", instructions: "" }]
+  )
+  const [comments, setComments] = useState(task.comments || "")
+  const [urgent, setUrgent] = useState(task.priority === "urgent")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+
+  const updateMed = (i: number, key: keyof MedLine, val: string) =>
+    setMeds(prev => prev.map((m, j) => j === i ? { ...m, [key]: val } : m))
+  const addMed = () => setMeds(prev => [...prev, { name: "", dose: "", due_at: "", instructions: "" }])
+  const removeMed = (i: number) => setMeds(prev => prev.length > 1 ? prev.filter((_, j) => j !== i) : prev)
+
+  const submit = async () => {
+    const cleanMeds = meds.filter(m => m.name.trim())
+    if (!patient.trim() || cleanMeds.length === 0) { setError("Patient and at least one medication are required"); return }
+    setSaving(true); setError("")
+    try {
+      const r = await fetch("/api/admin/medication-tasks", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: task.id,
+          action: "edit",
+          patient_name: patient,
+          patient_account: account || null,
+          priority: urgent ? "urgent" : "normal",
+          comments: comments || null,
+          medications: cleanMeds.map(m => ({
+            name: m.name, dose: m.dose || null,
+            due_at: m.due_at ? new Date(m.due_at).toISOString() : null,
+            instructions: m.instructions || null,
+          })),
+        }),
+      })
+      const d = await r.json()
+      if (!r.ok) { setError(d.error || "Could not save"); return }
+      onSaved()
+    } catch {
+      setError("Network error")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal onClose={onClose} title="Edit Task">
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Patient Name *"><input value={patient} onChange={e => setPatient(e.target.value)} className={inputCls} /></Field>
+          <Field label="Account #"><input value={account} onChange={e => setAccount(e.target.value)} className={inputCls} /></Field>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500">Medications *</label>
+          <div className="space-y-2">
+            {meds.map((m, i) => (
+              <div key={i} className="rounded-lg border border-gray-200 bg-gray-50 p-2.5">
+                <div className="flex gap-2">
+                  <input value={m.name} onChange={e => updateMed(i, "name", e.target.value)} placeholder="Medication name" className={`${inputCls} flex-1`} />
+                  <input value={m.dose} onChange={e => updateMed(i, "dose", e.target.value)} placeholder="Dose" className={`${inputCls} w-24`} />
+                  {meds.length > 1 && <button onClick={() => removeMed(i)} className="px-1 text-gray-400 hover:text-red-500"><X className="h-4 w-4" /></button>}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-[11px] text-gray-400">Date / time</label>
+                    <input type="datetime-local" value={m.due_at} onChange={e => updateMed(i, "due_at", e.target.value)} className={`${inputCls} w-full`} />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[11px] text-gray-400">Instructions</label>
+                    <input value={m.instructions} onChange={e => updateMed(i, "instructions", e.target.value)} placeholder="with food…" className={`${inputCls} w-full`} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <button onClick={addMed} className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#0B7C79] hover:underline">
+            <Plus className="h-3.5 w-3.5" /> Add another medication
+          </button>
+        </div>
+
+        <Field label="Comments"><textarea value={comments} onChange={e => setComments(e.target.value)} rows={2} className={`${inputCls} w-full`} /></Field>
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" checked={urgent} onChange={e => setUrgent(e.target.checked)} /> Mark as urgent
+        </label>
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm">Cancel</button>
+          <button onClick={submit} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B7C79] px-4 py-2 text-sm font-medium text-white hover:bg-[#0a6b68] disabled:opacity-60">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />} Save Changes
           </button>
         </div>
       </div>
