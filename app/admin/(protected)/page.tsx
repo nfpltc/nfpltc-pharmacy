@@ -3,7 +3,7 @@ import { cookies } from "next/headers"
 import { createServerClient } from "@supabase/ssr"
 import {
   ShieldCheck, Users, LogOut,
-  Briefcase, CreditCard, Syringe, MessageSquare, Receipt, UserCheck, BookOpen, UsersRound, FileStack, Bot
+  Briefcase, CreditCard, Syringe, MessageSquare, Receipt, UserCheck, BookOpen, UsersRound, FileStack, Bot, Pill
 } from "lucide-react"
 import AnalyticsDashboard from "@/components/AnalyticsDashboard"
 
@@ -21,6 +21,7 @@ const sidebarLinks = [
   // { href: "/admin/subscribers", label: "Subscribers", icon: UsersRound }, // hidden from sidebar (page still works via direct URL)
   { href: "/admin/customers", label: "Customers", icon: UsersRound },
   { href: "/admin/statements", label: "Statements", icon: FileStack },
+  { href: "/admin/medication-tasks", label: "Medication Tasks", icon: Pill },
 ]
 
 export const dynamic = "force-dynamic"
