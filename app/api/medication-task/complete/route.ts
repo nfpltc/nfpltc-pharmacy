@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 
     const { data: task } = await sb
       .from("medication_tasks")
-      .select("id, patient_name, patient_account, medication, instructions, priority, status, completed_at, completed_by")
+      .select("id, patient_name, patient_account, medication, medications, comments, instructions, priority, status, completed_at, completed_by")
       .eq("id", rec.task_id)
       .maybeSingle()
     if (!task) return NextResponse.json({ error: "Task not found." }, { status: 404 })
