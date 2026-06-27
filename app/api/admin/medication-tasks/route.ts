@@ -202,31 +202,84 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ── PATCH: admin actions — mark completed manually, or cancel ──────────────
-// Body: { id, action: "complete" | "cancel", by? }
+// ── PATCH: admin actions — complete, cancel, or edit a task ────────────────
+// Body: { id, action: "complete" | "cancel" | "edit", by?, ...editFields }
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
     const id = String(body.id || "").trim()
     const action = body.action
-    if (!id || !["complete", "cancel"].includes(action)) {
-      return NextResponse.json({ error: "id and a valid action are required" }, { status: 400 })
+    if (!id || !["complete", "cancel", "edit"].includes(action)) {
+      return NextResponse.json({ error: "id and a valid action (complete/cancel/edit) are required" }, { status: 400 })
     }
 
     const sb = admin()
-    const updates: Record<string, any> =
-      action === "complete"
-        ? { status: "completed", completed_at: new Date().toISOString(), completed_by: body.by ? String(body.by) : "Admin", completed_via: "admin" }
-        : { status: "cancelled" }
+
+    if (action === "complete") {
+      const { data, error } = await sb
+        .from("medication_tasks")
+        .update({ status: "completed", completed_at: new Date().toISOString(), completed_by: body.by ? String(body.by) : "Admin", completed_via: "admin" })
+        .eq("id", id).select().single()
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ success: true, task: data })
+    }
+
+    if (action === "cancel") {
+      const { data, error } = await sb
+        .from("medication_tasks")
+        .update({ status: "cancelled" })
+        .eq("id", id).select().single()
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ success: true, task: data })
+    }
+
+    // action === "edit"
+    const updates: Record<string, any> = {}
+    if ("patient_name" in body) updates.patient_name = String(body.patient_name || "").trim()
+    if ("patient_account" in body) updates.patient_account = body.patient_account ? String(body.patient_account).trim() : null
+    if ("priority" in body) updates.priority = body.priority === "urgent" ? "urgent" : "normal"
+    if ("instructions" in body) updates.instructions = body.instructions ? String(body.instructions).trim() : null
+    if ("comments" in body) updates.comments = body.comments ? String(body.comments).trim() : null
+    if ("medications" in body && Array.isArray(body.medications)) {
+      const meds = body.medications
+        .map((m: any) => ({
+          name: String(m.name || "").trim(),
+          dose: m.dose ? String(m.dose).trim() : null,
+          due_at: m.due_at ? String(m.due_at) : null,
+          instructions: m.instructions ? String(m.instructions).trim() : null,
+        }))
+        .filter((m: any) => m.name)
+      updates.medications = meds
+      updates.medication = meds.map((m: any) => m.name).join(", ")
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: "Nothing to update" }, { status: 400 })
+    }
 
     const { data, error } = await sb
-      .from("medication_tasks")
-      .update(updates)
-      .eq("id", id)
-      .select()
-      .single()
+      .from("medication_tasks").update(updates).eq("id", id).select().single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ success: true, task: data })
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "Server error" }, { status: 500 })
+  }
+}
+
+// ── DELETE: remove a task + its recipients ─────────────────────────────────
+// Query: ?id=XXX
+export async function DELETE(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url)
+    const id = searchParams.get("id")?.trim()
+    if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
+
+    const sb = admin()
+    // Recipients cascade-delete via foreign key, but let's be explicit
+    await sb.from("medication_task_recipients").delete().eq("task_id", id)
+    const { error } = await sb.from("medication_tasks").delete().eq("id", id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ success: true })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Server error" }, { status: 500 })
   }
