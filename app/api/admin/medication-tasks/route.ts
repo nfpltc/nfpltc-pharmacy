@@ -69,16 +69,35 @@ export async function GET(req: NextRequest) {
 }
 
 // ── POST: create a task + notify recipients ────────────────────────────────
-// Body: { patient_name, medication, instructions?, priority?, patient_account?,
-//         recipients: [{email, name?}], created_by? }
+// Body: { patient_name, patient_account?, medications: [{name, dose?, due_at?, instructions?}],
+//         comments?, priority?, recipients: [{email, name?}], created_by? }
+// (Legacy: a single `medication` string is still accepted and wrapped.)
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
     const patient_name = String(body.patient_name || "").trim()
-    const medication = String(body.medication || "").trim()
-    if (!patient_name || !medication) {
-      return NextResponse.json({ error: "Patient name and medication are required" }, { status: 400 })
+
+    // Normalize medications into an array of {name, dose, due_at, instructions}
+    let medications: any[] = Array.isArray(body.medications) ? body.medications : []
+    medications = medications
+      .map((m: any) => ({
+        name: String(m.name || "").trim(),
+        dose: m.dose ? String(m.dose).trim() : null,
+        due_at: m.due_at ? String(m.due_at) : null,
+        instructions: m.instructions ? String(m.instructions).trim() : null,
+      }))
+      .filter((m: any) => m.name)
+    // Back-compat: single medication string
+    if (medications.length === 0 && body.medication) {
+      medications = [{ name: String(body.medication).trim(), dose: null, due_at: null, instructions: null }]
     }
+
+    if (!patient_name || medications.length === 0) {
+      return NextResponse.json({ error: "Patient name and at least one medication are required" }, { status: 400 })
+    }
+
+    // Readable summary for the legacy `medication` column + list views
+    const medicationSummary = medications.map(m => m.name).join(", ")
 
     const sb = admin()
 
@@ -110,7 +129,9 @@ export async function POST(req: NextRequest) {
       .insert({
         patient_name,
         patient_account: body.patient_account ? String(body.patient_account).trim() : null,
-        medication,
+        medication: medicationSummary,
+        medications,
+        comments: body.comments ? String(body.comments).trim() : null,
         instructions: body.instructions ? String(body.instructions).trim() : null,
         priority: body.priority === "urgent" ? "urgent" : "normal",
         status: "pending",
@@ -147,7 +168,10 @@ export async function POST(req: NextRequest) {
         try {
           const completeUrl = `${base}/medication-task/complete?token=${rec.token}`
           const html = renderTaskEmail(task, rec.name || "team member", completeUrl, base)
-          const text = `New medication task\n\nPatient: ${task.patient_name}\nMedication: ${task.medication}\n${task.instructions ? `Instructions: ${task.instructions}\n` : ""}\nMark completed: ${completeUrl}`
+          const medsText = (Array.isArray(task.medications) && task.medications.length ? task.medications : [{ name: task.medication }])
+            .map((m: any) => `- ${m.name}${m.dose ? ` (${m.dose})` : ""}${m.due_at ? ` — due ${m.due_at}` : ""}${m.instructions ? ` — ${m.instructions}` : ""}`)
+            .join("\n")
+          const text = `New medication task\n\nPatient: ${task.patient_name}\nMedications:\n${medsText}\n${task.comments ? `\nNote: ${task.comments}\n` : ""}\nMark completed: ${completeUrl}`
           const r = await resend.emails.send({
             from: FROM_EMAIL,
             to: rec.email,
@@ -210,6 +234,19 @@ export async function PATCH(req: NextRequest) {
 
 function renderTaskEmail(task: any, recipientName: string, completeUrl: string, base: string): string {
   const urgent = task.priority === "urgent"
+  const meds: any[] = Array.isArray(task.medications) && task.medications.length
+    ? task.medications
+    : [{ name: task.medication }]
+
+  const medRows = meds.map(m => {
+    const parts: string[] = []
+    if (m.dose) parts.push(escapeHtml(m.dose))
+    if (m.due_at) parts.push(`due ${formatDateTime(m.due_at)}`)
+    if (m.instructions) parts.push(escapeHtml(m.instructions))
+    const sub = parts.length ? `<div style="color:#6B7280;font-size:13px">${parts.join(" · ")}</div>` : ""
+    return `<li style="margin-bottom:8px"><span style="color:#111827;font-weight:600">${escapeHtml(m.name)}</span>${sub}</li>`
+  }).join("")
+
   return `<!doctype html><html><body style="margin:0;background:#F7F5EF;font-family:Arial,sans-serif">
     <div style="max-width:560px;margin:0 auto;padding:24px">
       <div style="background:${BRAND};border-radius:12px;padding:24px;text-align:center">
@@ -219,16 +256,23 @@ function renderTaskEmail(task: any, recipientName: string, completeUrl: string, 
       <div style="background:#fff;border-radius:12px;padding:24px;margin-top:16px">
         ${urgent ? `<div style="background:#FEE2E2;color:#B91C1C;font-weight:600;padding:8px 12px;border-radius:8px;margin-bottom:16px;font-size:14px">⚠ URGENT</div>` : ""}
         <p style="margin:0 0 16px;color:#111827">Hi ${escapeHtml(recipientName)},</p>
-        <p style="margin:0 0 16px;color:#374151">A medication task has been assigned:</p>
-        <table style="width:100%;border-collapse:collapse;margin-bottom:20px">
-          <tr><td style="padding:8px 0;color:#6B7280;font-size:13px;width:120px">Patient</td><td style="padding:8px 0;color:#111827;font-weight:600">${escapeHtml(task.patient_name)}</td></tr>
-          ${task.patient_account ? `<tr><td style="padding:8px 0;color:#6B7280;font-size:13px">Account</td><td style="padding:8px 0;color:#111827">${escapeHtml(task.patient_account)}</td></tr>` : ""}
-          <tr><td style="padding:8px 0;color:#6B7280;font-size:13px">Medication</td><td style="padding:8px 0;color:#111827;font-weight:600">${escapeHtml(task.medication)}</td></tr>
-          ${task.instructions ? `<tr><td style="padding:8px 0;color:#6B7280;font-size:13px;vertical-align:top">Instructions</td><td style="padding:8px 0;color:#374151">${escapeHtml(task.instructions)}</td></tr>` : ""}
+        <p style="margin:0 0 12px;color:#374151">A medication task has been assigned:</p>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+          <tr><td style="padding:6px 0;color:#6B7280;font-size:13px;width:120px">Patient</td><td style="padding:6px 0;color:#111827;font-weight:600">${escapeHtml(task.patient_name)}</td></tr>
+          ${task.patient_account ? `<tr><td style="padding:6px 0;color:#6B7280;font-size:13px">Account</td><td style="padding:6px 0;color:#111827">${escapeHtml(task.patient_account)}</td></tr>` : ""}
         </table>
+        <p style="margin:0 0 4px;color:#6B7280;font-size:13px">Medications</p>
+        <ul style="margin:0 0 16px;padding-left:20px">${medRows}</ul>
+        ${task.comments ? `<div style="background:#F0FDF9;border-left:3px solid #0B7C79;padding:10px 14px;border-radius:6px;margin-bottom:16px"><p style="margin:0;color:#374151;font-size:14px"><strong>Note:</strong> ${escapeHtml(task.comments)}</p></div>` : ""}
         <a href="${completeUrl}" style="display:inline-block;background:${BRAND};color:#fff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:600;font-size:15px">✓ Mark as Completed</a>
         <p style="margin:20px 0 0;color:#9CA3AF;font-size:12px">Click the button when this task is done. North Falmouth Pharmacy · (508) 564-4459</p>
       </div>
     </div>
   </body></html>`
+}
+
+function formatDateTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+  } catch { return iso }
 }
