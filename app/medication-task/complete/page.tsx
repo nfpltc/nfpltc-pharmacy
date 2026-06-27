@@ -93,8 +93,24 @@ function CompletionInner() {
                   <div className="space-y-2 text-sm">
                     <Row label="Patient" value={task?.patient_name} bold />
                     {task?.patient_account && <Row label="Account" value={task.patient_account} />}
-                    <Row label="Medication" value={task?.medication} bold />
-                    {task?.instructions && <Row label="Instructions" value={task.instructions} />}
+                    {Array.isArray(task?.medications) && task.medications.length > 0 ? (
+                      <div className="flex gap-2">
+                        <span className="w-20 flex-shrink-0 text-xs text-gray-500">Medications</span>
+                        <ul className="space-y-1">
+                          {task.medications.map((m: any, i: number) => (
+                            <li key={i} className="text-gray-900">
+                              <span className="font-semibold">{m.name}</span>
+                              {m.dose ? ` · ${m.dose}` : ""}
+                              {m.due_at ? <span className="text-gray-500"> · {new Date(m.due_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span> : ""}
+                              {m.instructions ? <div className="text-xs text-gray-500">{m.instructions}</div> : ""}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : (
+                      <Row label="Medication" value={task?.medication} bold />
+                    )}
+                    {task?.comments && <Row label="Note" value={task.comments} />}
                   </div>
                 </div>
 
