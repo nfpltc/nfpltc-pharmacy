@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { ArrowLeft, Pill, Plus, X, Loader2, CheckCircle2, Clock, Ban, Trash2, Mail, Users, Search, Sparkles, Pencil } from "lucide-react"
+import { ArrowLeft, Pill, Plus, X, Loader2, CheckCircle2, Clock, Ban, Trash2, Mail, Users, Search, Sparkles, Pencil, Download, Upload } from "lucide-react"
 
 interface Recipient { email: string; name?: string; notified_at?: string; clicked_at?: string }
 interface Task {
@@ -28,6 +28,7 @@ export default function MedicationTasksPage() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [showDefaults, setShowDefaults] = useState(false)
+  const [showImport, setShowImport] = useState(false)
   const [editing, setEditing] = useState<Task | null>(null)
   const [msg, setMsg] = useState("")
 
@@ -64,6 +65,39 @@ export default function MedicationTasksPage() {
     if (r.ok) { setMsg("Task deleted"); load() }
   }
 
+  const exportCSV = () => {
+    if (tasks.length === 0) { setMsg("No tasks to export"); return }
+    const header = "patient_name,patient_account,medication,dose,due_at,instructions,priority,comments,status,created_at,completed_at,completed_by"
+    const rows = tasks.flatMap(t => {
+      const meds = Array.isArray(t.medications) && t.medications.length > 0
+        ? t.medications
+        : [{ name: t.medication, dose: "", due_at: "", instructions: "" }]
+      return meds.map(m => [
+        csvVal(t.patient_name), csvVal(t.patient_account), csvVal(m.name),
+        csvVal(m.dose), csvVal(m.due_at), csvVal(m.instructions),
+        csvVal(t.priority), csvVal(t.comments), csvVal(t.status),
+        csvVal(t.created_at), csvVal(t.completed_at), csvVal(t.completed_by),
+      ].join(","))
+    })
+    const blob = new Blob([header + "\n" + rows.join("\n")], { type: "text/csv" })
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = `medication-tasks-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+  }
+
+  const downloadSample = () => {
+    const sample = `patient_name,patient_account,medication,dose,due_at,instructions,priority,comments
+Jane Doe,10011791,Metformin 500mg,1 tablet,2026-07-01 14:00,Take with food,normal,Please administer after lunch
+Jane Doe,10011791,Amlodipine 5mg,1 tablet,2026-07-01 08:00,Morning dose,normal,
+John Smith,10012345,Omeprazole 20mg,1 capsule,2026-07-01 07:00,Before breakfast,urgent,High priority patient`
+    const blob = new Blob([sample], { type: "text/csv" })
+    const a = document.createElement("a")
+    a.href = URL.createObjectURL(blob)
+    a.download = "medication-tasks-template.csv"
+    a.click()
+  }
+
   return (
     <main className="min-h-screen bg-[#F7F5EF]">
       <section className="relative overflow-hidden" style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}>
@@ -78,9 +112,15 @@ export default function MedicationTasksPage() {
               </h1>
               <p className="mt-1 text-sm text-white/85">Assign medication tasks and track completion.</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button onClick={() => setShowDefaults(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white hover:bg-white/25">
                 <Users className="h-4 w-4" /> Default Recipients
+              </button>
+              <button onClick={exportCSV} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white hover:bg-white/25">
+                <Download className="h-4 w-4" /> Export
+              </button>
+              <button onClick={() => setShowImport(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white hover:bg-white/25">
+                <Upload className="h-4 w-4" /> Import
               </button>
               <button onClick={() => setShowForm(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-sm font-medium text-[#0B7C79] hover:bg-gray-50">
                 <Plus className="h-4 w-4" /> New Task
@@ -126,6 +166,7 @@ export default function MedicationTasksPage() {
 
       {showForm && <NewTaskModal onClose={() => setShowForm(false)} onCreated={(m) => { setShowForm(false); setMsg(m); setFilter("pending"); load() }} />}
       {editing && <EditTaskModal task={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setMsg("Task updated ✓"); load() }} />}
+      {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={(m) => { setShowImport(false); setMsg(m); load() }} onDownloadSample={downloadSample} />}
       {showDefaults && <DefaultsModal onClose={() => setShowDefaults(false)} />}
     </main>
   )
@@ -513,6 +554,80 @@ function EditTaskModal({ task, onClose, onSaved }: { task: Task; onClose: () => 
   )
 }
 
+function ImportModal({ onClose, onDone, onDownloadSample }: { onClose: () => void; onDone: (msg: string) => void; onDownloadSample: () => void }) {
+  const [file, setFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState("")
+
+  const handleUpload = async () => {
+    if (!file) { setError("Select a CSV file first"); return }
+    setUploading(true); setError("")
+    try {
+      const text = await file.text()
+      const r = await fetch("/api/admin/medication-tasks/import", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv: text }),
+      })
+      const d = await r.json()
+      if (!r.ok) { setError(d.error || "Import failed"); return }
+      const errs = d.errors?.length ? ` (${d.errors.length} errors)` : ""
+      onDone(`Imported ${d.tasks_created} tasks from ${d.rows_parsed} rows${errs}`)
+    } catch {
+      setError("Network error")
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <Modal onClose={onClose} title="Import Medication Tasks">
+      <div className="space-y-4">
+        <p className="text-sm text-gray-600">
+          Upload a CSV file to bulk-create medication tasks. Rows with the same patient name and account are grouped into one task with multiple medications.
+        </p>
+
+        <div className="rounded-lg bg-gray-50 p-3">
+          <p className="mb-2 text-xs font-semibold text-gray-700">Required columns</p>
+          <div className="flex flex-wrap gap-1.5">
+            {["patient_name", "medication"].map(c => (
+              <span key={c} className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">{c}</span>
+            ))}
+          </div>
+          <p className="mt-2 text-xs font-semibold text-gray-700">Optional columns</p>
+          <div className="flex flex-wrap gap-1.5">
+            {["patient_account", "dose", "due_at", "instructions", "priority", "comments"].map(c => (
+              <span key={c} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{c}</span>
+            ))}
+          </div>
+        </div>
+
+        <button onClick={onDownloadSample} className="inline-flex items-center gap-1.5 text-sm font-medium text-[#0B7C79] hover:underline">
+          <Download className="h-4 w-4" /> Download sample template
+        </button>
+
+        <div>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={e => setFile(e.target.files?.[0] || null)}
+            className="block w-full text-sm text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-emerald-700 hover:file:bg-emerald-100"
+          />
+        </div>
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm">Cancel</button>
+          <button onClick={handleUpload} disabled={uploading || !file}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B7C79] px-4 py-2 text-sm font-medium text-white hover:bg-[#0a6b68] disabled:opacity-60">
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Import
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function DefaultsModal({ onClose }: { onClose: () => void }) {
   const [list, setList] = useState<any[]>([])
   const [email, setEmail] = useState("")
@@ -570,6 +685,12 @@ function DefaultsModal({ onClose }: { onClose: () => void }) {
 }
 
 const inputCls = "rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+
+function csvVal(v: any): string {
+  if (v == null) return ""
+  const s = String(v)
+  return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s
+}
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return <div><label className="mb-1 block text-xs font-medium text-gray-500">{label}</label>{children}</div>
