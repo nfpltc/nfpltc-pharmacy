@@ -262,7 +262,7 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   // Default recipients — loaded on mount, shown as removable chips
   const [defaultRecipients, setDefaultRecipients] = useState<{ email: string; name: string | null }[]>([])
   const [extraRecipients, setExtraRecipients] = useState<{ email: string; name: string }[]>([])
-  const [removedDefaults, setRemovedDefaults] = useState<Set<string>>(new Set())
+  const [removedDefaults, setRemovedDefaults] = useState<Set<number>>(new Set())
   const [newEmail, setNewEmail] = useState("")
   const [newName, setNewName] = useState("")
 
@@ -299,10 +299,12 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     finally { setSearching(false) }
   }
   const pickCustomer = (c: any) => {
-    setPatient(`${c.first_name} ${c.last_name}`.trim())
+    const name = `${c.first_name} ${c.last_name}`.trim()
+    setPatient(name)
     setAccount(c.account_number || "")
-    setCustQuery(`${c.last_name?.toUpperCase()}, ${c.first_name}`)
+    setCustQuery(name)
     setShowCustResults(false)
+    setCustResults([])
   }
 
   const updateMed = (i: number, key: keyof MedLine, val: string) => {
@@ -328,7 +330,7 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     setMedSearchIdx(null); setMedSearchResults([])
   }
 
-  const removeDefault = (email: string) => setRemovedDefaults(prev => new Set(prev).add(email))
+  const removeDefault = (idx: number) => setRemovedDefaults(prev => new Set(prev).add(idx))
   const addRecipient = () => {
     const e = newEmail.trim().toLowerCase()
     if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) { setError("Enter a valid email"); return }
@@ -351,7 +353,7 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     finally { setPolishing(false) }
   }
 
-  const activeDefaults = defaultRecipients.filter(d => !removedDefaults.has(d.email))
+  const activeDefaults = defaultRecipients.filter((_, i) => !removedDefaults.has(i))
 
   const submit = async () => {
     const cleanMeds = meds.filter(m => m.name.trim())
@@ -385,27 +387,25 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   return (
     <Modal onClose={onClose} title="New Medication Task">
       <div className="space-y-3">
-        <div className="relative">
-          <label className="mb-1 block text-xs font-medium text-gray-500">Find customer (CRM) — optional</label>
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-            <input value={custQuery} onChange={e => searchCustomers(e.target.value)} placeholder="Search name or account…" className={`${inputCls} w-full pl-9`} />
-            {searching && <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-gray-400" />}
-          </div>
-          {showCustResults && custResults.length > 0 && (
-            <div className="absolute z-10 mt-1 max-h-44 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-              {custResults.slice(0, 8).map((c: any) => (
-                <button key={c.account_number} onClick={() => pickCustomer(c)} className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50">
-                  <span className="font-medium">{c.last_name?.toUpperCase()}, {c.first_name}</span>
-                  <span className="text-gray-400"> · {c.account_number}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Patient Name *"><input value={patient} onChange={e => setPatient(e.target.value)} className={inputCls} placeholder="Jane Doe" /></Field>
+          <div className="relative">
+            <Field label="Patient Name *">
+              <input value={patient} onChange={e => { setPatient(e.target.value); searchCustomers(e.target.value) }}
+                onFocus={() => { if (patient.trim().length >= 2) searchCustomers(patient) }}
+                onBlur={() => setTimeout(() => setShowCustResults(false), 200)}
+                className={inputCls} placeholder="Type to search CRM…" />
+            </Field>
+            {showCustResults && custResults.length > 0 && (
+              <div className="absolute z-10 mt-1 max-h-44 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                {custResults.slice(0, 8).map((c: any) => (
+                  <button key={c.account_number} onClick={() => pickCustomer(c)} className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50">
+                    <span className="font-medium">{c.last_name?.toUpperCase()}, {c.first_name}</span>
+                    <span className="text-gray-400"> · {c.account_number}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <Field label="Account #"><input value={account} onChange={e => setAccount(e.target.value)} className={inputCls} placeholder="10011791" /></Field>
         </div>
 
@@ -469,17 +469,17 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <p className="mb-2 text-xs font-medium text-gray-600">Who will be notified</p>
           {defaultRecipients.length > 0 && (
             <div className="mb-2 space-y-1">
-              {defaultRecipients.map(d => (
-                <div key={d.email} className={`flex items-center justify-between rounded px-2 py-1 text-xs ${removedDefaults.has(d.email) ? "bg-gray-100 text-gray-400 line-through" : "bg-emerald-50 text-emerald-700"}`}>
+              {defaultRecipients.map((d, di) => (
+                <div key={`${d.email}-${di}`} className={`flex items-center justify-between rounded px-2 py-1 text-xs ${removedDefaults.has(di) ? "bg-gray-100 text-gray-400 line-through" : "bg-emerald-50 text-emerald-700"}`}>
                   <span className="flex items-center gap-1">
                     <Users className="h-3 w-3" />
                     {d.name ? `${d.name} · ` : ""}{d.email}
                     <span className="text-[10px] text-gray-400">(default)</span>
                   </span>
-                  {removedDefaults.has(d.email) ? (
-                    <button onClick={() => setRemovedDefaults(prev => { const n = new Set(prev); n.delete(d.email); return n })} className="text-emerald-600 hover:underline text-[11px]">add back</button>
+                  {removedDefaults.has(di) ? (
+                    <button onClick={() => setRemovedDefaults(prev => { const n = new Set(prev); n.delete(di); return n })} className="text-emerald-600 hover:underline text-[11px]">add back</button>
                   ) : (
-                    <button onClick={() => removeDefault(d.email)} className="text-gray-400 hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => removeDefault(di)} className="text-gray-400 hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
                   )}
                 </div>
               ))}
