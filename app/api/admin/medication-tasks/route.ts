@@ -138,6 +138,8 @@ export async function POST(req: NextRequest) {
         priority: body.priority === "urgent" ? "urgent" : "normal",
         status: "pending",
         created_by: body.created_by ? String(body.created_by).trim() : null,
+        follow_up_count: 0,
+        last_notified_at: new Date().toISOString(),
       })
       .select()
       .single()
