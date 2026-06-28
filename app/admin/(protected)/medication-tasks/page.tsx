@@ -18,6 +18,8 @@ interface Task {
   completed_at: string | null
   completed_by: string | null
   completed_via: string | null
+  follow_up_count?: number
+  last_notified_at?: string | null
   recipients: Recipient[]
 }
 
@@ -206,6 +208,7 @@ function TaskCard({ t, onComplete, onCancel, onEdit, onDelete }: { t: Task; onCo
 
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
             <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" /> {t.recipients?.length || 0} notified</span>
+            {(t.follow_up_count || 0) > 0 && <span className="text-amber-600">⏰ {t.follow_up_count} reminder{(t.follow_up_count || 0) > 1 ? "s" : ""} sent</span>}
             {clicked > 0 && <span className="text-emerald-600">{clicked} opened the link</span>}
             <span>{new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
           </div>
