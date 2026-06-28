@@ -29,6 +29,7 @@ export default function MedicationTasksPage() {
   const [showForm, setShowForm] = useState(false)
   const [showDefaults, setShowDefaults] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [showCatalog, setShowCatalog] = useState(false)
   const [editing, setEditing] = useState<Task | null>(null)
   const [msg, setMsg] = useState("")
 
@@ -114,7 +115,10 @@ John Smith,10012345,Omeprazole 20mg,1 capsule,2026-07-01 07:00,Before breakfast,
             </div>
             <div className="flex flex-wrap gap-2">
               <button onClick={() => setShowDefaults(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white hover:bg-white/25">
-                <Users className="h-4 w-4" /> Default Recipients
+                <Users className="h-4 w-4" /> Recipients
+              </button>
+              <button onClick={() => setShowCatalog(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white hover:bg-white/25">
+                <Pill className="h-4 w-4" /> Medications
               </button>
               <button onClick={exportCSV} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white hover:bg-white/25">
                 <Download className="h-4 w-4" /> Export
@@ -167,6 +171,7 @@ John Smith,10012345,Omeprazole 20mg,1 capsule,2026-07-01 07:00,Before breakfast,
       {showForm && <NewTaskModal onClose={() => setShowForm(false)} onCreated={(m) => { setShowForm(false); setMsg(m); setFilter("pending"); load() }} />}
       {editing && <EditTaskModal task={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setMsg("Task updated ✓"); load() }} />}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={(m) => { setShowImport(false); setMsg(m); load() }} onDownloadSample={downloadSample} />}
+      {showCatalog && <CatalogModal onClose={() => setShowCatalog(false)} />}
       {showDefaults && <DefaultsModal onClose={() => setShowDefaults(false)} />}
     </main>
   )
@@ -250,18 +255,36 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [meds, setMeds] = useState<MedLine[]>([{ name: "", dose: "", due_at: "", instructions: "" }])
   const [comments, setComments] = useState("")
   const [urgent, setUrgent] = useState(false)
-  const [extraRecipients, setExtraRecipients] = useState<{ email: string; name: string }[]>([])
-  const [newEmail, setNewEmail] = useState("")
-  const [newName, setNewName] = useState("")
   const [saving, setSaving] = useState(false)
   const [polishing, setPolishing] = useState(false)
   const [error, setError] = useState("")
+
+  // Default recipients — loaded on mount, shown as removable chips
+  const [defaultRecipients, setDefaultRecipients] = useState<{ email: string; name: string | null }[]>([])
+  const [extraRecipients, setExtraRecipients] = useState<{ email: string; name: string }[]>([])
+  const [removedDefaults, setRemovedDefaults] = useState<Set<string>>(new Set())
+  const [newEmail, setNewEmail] = useState("")
+  const [newName, setNewName] = useState("")
 
   // CRM customer search
   const [custQuery, setCustQuery] = useState("")
   const [custResults, setCustResults] = useState<any[]>([])
   const [searching, setSearching] = useState(false)
   const [showCustResults, setShowCustResults] = useState(false)
+
+  // Medication catalog search
+  const [medSearchIdx, setMedSearchIdx] = useState<number | null>(null)
+  const [medSearchResults, setMedSearchResults] = useState<any[]>([])
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/admin/medication-tasks/defaults")
+        const d = await r.json()
+        setDefaultRecipients((d.defaults || []).filter((d: any) => d.active !== false).map((d: any) => ({ email: d.email, name: d.name })))
+      } catch {}
+    })()
+  }, [])
 
   const searchCustomers = async (q: string) => {
     setCustQuery(q)
@@ -272,7 +295,7 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
       const d = await r.json()
       setCustResults(d.customers || d.data || [])
       setShowCustResults(true)
-    } catch { /* ignore */ }
+    } catch {}
     finally { setSearching(false) }
   }
   const pickCustomer = (c: any) => {
@@ -282,11 +305,30 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     setShowCustResults(false)
   }
 
-  const updateMed = (i: number, key: keyof MedLine, val: string) =>
+  const updateMed = (i: number, key: keyof MedLine, val: string) => {
     setMeds(prev => prev.map((m, j) => j === i ? { ...m, [key]: val } : m))
+    if (key === "name" && val.trim().length >= 2) searchMedCatalog(val, i)
+    else if (key === "name") { setMedSearchIdx(null); setMedSearchResults([]) }
+  }
   const addMed = () => setMeds(prev => [...prev, { name: "", dose: "", due_at: "", instructions: "" }])
   const removeMed = (i: number) => setMeds(prev => prev.length > 1 ? prev.filter((_, j) => j !== i) : prev)
 
+  const searchMedCatalog = async (q: string, idx: number) => {
+    setMedSearchIdx(idx)
+    try {
+      const r = await fetch(`/api/admin/medication-tasks/catalog?search=${encodeURIComponent(q.trim())}`)
+      const d = await r.json()
+      setMedSearchResults(d.medications || [])
+    } catch { setMedSearchResults([]) }
+  }
+  const pickMed = (idx: number, med: any) => {
+    setMeds(prev => prev.map((m, j) => j === idx ? {
+      ...m, name: med.name, dose: med.default_dose || m.dose, instructions: med.instructions || m.instructions,
+    } : m))
+    setMedSearchIdx(null); setMedSearchResults([])
+  }
+
+  const removeDefault = (email: string) => setRemovedDefaults(prev => new Set(prev).add(email))
   const addRecipient = () => {
     const e = newEmail.trim().toLowerCase()
     if (!e || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) { setError("Enter a valid email"); return }
@@ -309,11 +351,17 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     finally { setPolishing(false) }
   }
 
+  const activeDefaults = defaultRecipients.filter(d => !removedDefaults.has(d.email))
+
   const submit = async () => {
     const cleanMeds = meds.filter(m => m.name.trim())
     if (!patient.trim() || cleanMeds.length === 0) { setError("Patient and at least one medication are required"); return }
     setSaving(true); setError("")
     try {
+      const allRecipients = [
+        ...activeDefaults.map(d => ({ email: d.email, name: d.name || "" })),
+        ...extraRecipients,
+      ]
       const r = await fetch("/api/admin/medication-tasks", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -323,41 +371,31 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             due_at: m.due_at ? new Date(m.due_at).toISOString() : null,
             instructions: m.instructions || null,
           })),
-          comments, priority: urgent ? "urgent" : "normal", recipients: extraRecipients,
+          comments, priority: urgent ? "urgent" : "normal", recipients: allRecipients,
         }),
       })
       const d = await r.json()
       if (!r.ok) { setError(d.error || "Could not create task"); return }
       const note = d.email_errors?.length ? ` (${d.emailed} emailed, ${d.email_errors.length} failed)` : ` (${d.emailed} notified)`
       onCreated(`Task created${note}`)
-    } catch {
-      setError("Network error")
-    } finally {
-      setSaving(false)
-    }
+    } catch { setError("Network error") }
+    finally { setSaving(false) }
   }
 
   return (
     <Modal onClose={onClose} title="New Medication Task">
       <div className="space-y-3">
-        {/* CRM customer search */}
         <div className="relative">
           <label className="mb-1 block text-xs font-medium text-gray-500">Find customer (CRM) — optional</label>
           <div className="relative">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-            <input
-              value={custQuery}
-              onChange={e => searchCustomers(e.target.value)}
-              placeholder="Search name or account…"
-              className={`${inputCls} w-full pl-9`}
-            />
+            <input value={custQuery} onChange={e => searchCustomers(e.target.value)} placeholder="Search name or account…" className={`${inputCls} w-full pl-9`} />
             {searching && <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-gray-400" />}
           </div>
           {showCustResults && custResults.length > 0 && (
             <div className="absolute z-10 mt-1 max-h-44 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
               {custResults.slice(0, 8).map((c: any) => (
-                <button key={c.account_number} onClick={() => pickCustomer(c)}
-                  className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50">
+                <button key={c.account_number} onClick={() => pickCustomer(c)} className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50">
                   <span className="font-medium">{c.last_name?.toUpperCase()}, {c.first_name}</span>
                   <span className="text-gray-400"> · {c.account_number}</span>
                 </button>
@@ -371,14 +409,28 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <Field label="Account #"><input value={account} onChange={e => setAccount(e.target.value)} className={inputCls} placeholder="10011791" /></Field>
         </div>
 
-        {/* Medication lines */}
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Medications *</label>
+          <label className="mb-1 block text-xs font-medium text-gray-500">Medications * — type to search your catalog</label>
           <div className="space-y-2">
             {meds.map((m, i) => (
-              <div key={i} className="rounded-lg border border-gray-200 bg-gray-50 p-2.5">
+              <div key={i} className="relative rounded-lg border border-gray-200 bg-gray-50 p-2.5">
                 <div className="flex gap-2">
-                  <input value={m.name} onChange={e => updateMed(i, "name", e.target.value)} placeholder="Medication name" className={`${inputCls} flex-1`} />
+                  <div className="relative flex-1">
+                    <input value={m.name} onChange={e => updateMed(i, "name", e.target.value)}
+                      onFocus={() => { if (m.name.trim().length >= 2) searchMedCatalog(m.name, i) }}
+                      onBlur={() => setTimeout(() => { if (medSearchIdx === i) setMedSearchIdx(null) }, 200)}
+                      placeholder="Medication name" className={`${inputCls} w-full`} />
+                    {medSearchIdx === i && medSearchResults.length > 0 && (
+                      <div className="absolute z-10 mt-1 max-h-36 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                        {medSearchResults.map(med => (
+                          <button key={med.id} onClick={() => pickMed(i, med)} className="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50">
+                            <span className="font-medium">{med.name}</span>
+                            {med.default_dose && <span className="text-gray-400"> · {med.default_dose}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <input value={m.dose} onChange={e => updateMed(i, "dose", e.target.value)} placeholder="Dose" className={`${inputCls} w-24`} />
                   {meds.length > 1 && <button onClick={() => removeMed(i)} className="px-1 text-gray-400 hover:text-red-500"><X className="h-4 w-4" /></button>}
                 </div>
@@ -400,7 +452,6 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           </button>
         </div>
 
-        {/* Comments + AI */}
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-500">Comment to include in the email (optional)</label>
           <textarea value={comments} onChange={e => setComments(e.target.value)} rows={2} className={`${inputCls} w-full`} placeholder="Any note for the recipients…" />
@@ -414,9 +465,29 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <input type="checkbox" checked={urgent} onChange={e => setUrgent(e.target.checked)} /> Mark as urgent
         </label>
 
-        {/* Extra recipients */}
         <div className="rounded-lg bg-gray-50 p-3">
-          <p className="mb-2 text-xs font-medium text-gray-600">Notify (in addition to your default list)</p>
+          <p className="mb-2 text-xs font-medium text-gray-600">Who will be notified</p>
+          {defaultRecipients.length > 0 && (
+            <div className="mb-2 space-y-1">
+              {defaultRecipients.map(d => (
+                <div key={d.email} className={`flex items-center justify-between rounded px-2 py-1 text-xs ${removedDefaults.has(d.email) ? "bg-gray-100 text-gray-400 line-through" : "bg-emerald-50 text-emerald-700"}`}>
+                  <span className="flex items-center gap-1">
+                    <Users className="h-3 w-3" />
+                    {d.name ? `${d.name} · ` : ""}{d.email}
+                    <span className="text-[10px] text-gray-400">(default)</span>
+                  </span>
+                  {removedDefaults.has(d.email) ? (
+                    <button onClick={() => setRemovedDefaults(prev => { const n = new Set(prev); n.delete(d.email); return n })} className="text-emerald-600 hover:underline text-[11px]">add back</button>
+                  ) : (
+                    <button onClick={() => removeDefault(d.email)} className="text-gray-400 hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {defaultRecipients.length === 0 && (
+            <p className="mb-2 text-xs text-amber-600">No default recipients set up. Add some via the Recipients button, or add below.</p>
+          )}
           {extraRecipients.length > 0 && (
             <div className="mb-2 space-y-1">
               {extraRecipients.map((r, i) => (
@@ -432,7 +503,6 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             <input value={newEmail} onChange={e => setNewEmail(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addRecipient() } }} placeholder="email@example.com" className={`${inputCls} flex-1`} />
             <button onClick={addRecipient} className="rounded-lg border border-gray-300 px-3 text-sm hover:bg-gray-100">Add</button>
           </div>
-          <p className="mt-1.5 text-xs text-gray-400">Your default recipients are always notified automatically.</p>
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
@@ -446,7 +516,6 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     </Modal>
   )
 }
-
 function EditTaskModal({ task, onClose, onSaved }: { task: Task; onClose: () => void; onSaved: () => void }) {
   const [patient, setPatient] = useState(task.patient_name)
   const [account, setAccount] = useState(task.patient_account || "")
@@ -685,6 +754,71 @@ function DefaultsModal({ onClose }: { onClose: () => void }) {
 }
 
 const inputCls = "rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+
+function CatalogModal({ onClose }: { onClose: () => void }) {
+  const [list, setList] = useState<any[]>([])
+  const [name, setName] = useState("")
+  const [dose, setDose] = useState("")
+  const [instr, setInstr] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState("")
+
+  const load = async () => {
+    setLoading(true)
+    try { const r = await fetch("/api/admin/medication-tasks/catalog"); const d = await r.json(); if (r.ok) setList(d.medications || []) }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [])
+
+  const add = async () => {
+    if (!name.trim()) { setError("Name is required"); return }
+    setError("")
+    const r = await fetch("/api/admin/medication-tasks/catalog", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), default_dose: dose.trim() || null, instructions: instr.trim() || null }),
+    })
+    if (r.ok) { setName(""); setDose(""); setInstr(""); load() }
+    else { const d = await r.json(); setError(d.error || "Could not add") }
+  }
+  const remove = async (id: string) => {
+    await fetch(`/api/admin/medication-tasks/catalog?id=${id}`, { method: "DELETE" })
+    load()
+  }
+
+  return (
+    <Modal onClose={onClose} title="Medication Catalog">
+      <p className="mb-3 text-sm text-gray-500">Pre-add common medications so you can search and select them when creating tasks.</p>
+      {loading ? (
+        <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>
+      ) : (
+        <div className="mb-3 max-h-64 space-y-1 overflow-y-auto">
+          {list.length === 0 ? <p className="text-sm italic text-gray-400">No medications in the catalog yet.</p> :
+            list.map(m => (
+              <div key={m.id} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                <div>
+                  <span className="font-medium">{m.name}</span>
+                  {m.default_dose && <span className="text-gray-500"> · {m.default_dose}</span>}
+                  {m.instructions && <span className="text-gray-400"> · {m.instructions}</span>}
+                </div>
+                <button onClick={() => remove(m.id)} className="text-red-500 hover:text-red-700"><Trash2 className="h-4 w-4" /></button>
+              </div>
+            ))}
+        </div>
+      )}
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Medication name *" className={`${inputCls} flex-1`} />
+          <input value={dose} onChange={e => setDose(e.target.value)} placeholder="Default dose" className={`${inputCls} w-28`} />
+        </div>
+        <div className="flex gap-2">
+          <input value={instr} onChange={e => setInstr(e.target.value)} onKeyDown={e => { if (e.key === "Enter") add() }} placeholder="Default instructions (optional)" className={`${inputCls} flex-1`} />
+          <button onClick={add} className="rounded-lg bg-[#0B7C79] px-3 text-sm font-medium text-white hover:bg-[#0a6b68]">Add</button>
+        </div>
+      </div>
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+    </Modal>
+  )
+}
 
 function csvVal(v: any): string {
   if (v == null) return ""
