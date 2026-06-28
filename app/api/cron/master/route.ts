@@ -6,7 +6,7 @@ import { signUnsubscribeToken } from "@/lib/statement-email"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-export const maxDuration = 120
+export const maxDuration = 60
 
 // ============================================================================
 // MASTER CRON — runs every 12 hours via Vercel.
