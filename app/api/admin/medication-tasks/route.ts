@@ -38,6 +38,8 @@ export async function GET(req: NextRequest) {
 
     let q = sb.from("medication_tasks").select("*").order("created_at", { ascending: false }).limit(200)
     if (status && status !== "all") q = q.eq("status", status)
+    const account = searchParams.get("account")
+    if (account) q = q.eq("patient_account", account.trim())
     const { data: tasks, error } = await q
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
