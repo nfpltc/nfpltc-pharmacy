@@ -1,6 +1,6 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
-import { Mail, FileText, Save, Loader2, MapPin, Phone, Calendar, StickyNote, Send, Sparkles, Wand2 } from "lucide-react"
+import { Mail, FileText, Save, Loader2, MapPin, Phone, Calendar, StickyNote, Send, Sparkles, Wand2, Pill } from "lucide-react"
 
 // Shown inline when an admin clicks a customer row to expand it.
 // Three sections: editable contact profile, statement history, email history.
@@ -52,6 +52,7 @@ export default function CustomerDetailPanel({
   const [profile, setProfile] = useState<CustomerProfile | null>(null)
   const [statements, setStatements] = useState<StatementRow[]>([])
   const [emailHistory, setEmailHistory] = useState<EmailRow[]>([])
+  const [medTasks, setMedTasks] = useState<any[]>([])
   const [error, setError] = useState("")
 
   // Editable form state (mirrors profile fields)
@@ -151,6 +152,14 @@ export default function CustomerDetailPanel({
       setProfile(d.profile)
       setStatements(d.statements || [])
       setEmailHistory(d.email_history || [])
+
+      // Fetch medication tasks for this account
+      try {
+        const mt = await fetch(`/api/admin/medication-tasks?account=${encodeURIComponent(accountNumber)}&status=all`)
+        const mtd = await mt.json()
+        setMedTasks(mtd.tasks || [])
+      } catch { setMedTasks([]) }
+
       setForm(d.profile || {})
     } catch (e: any) {
       setError(e.message || "Network error")
@@ -341,6 +350,56 @@ export default function CustomerDetailPanel({
                       <td className="px-3 py-2">{e.billing_period ? formatPeriod(e.billing_period) : "—"}</td>
                       <td className="px-3 py-2">
                         <StatusBadge status={e.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Medication Tasks */}
+        <div>
+          <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <Pill className="h-4 w-4 text-[#0B7C79]" /> Medication Tasks ({medTasks.length})
+          </h4>
+          {medTasks.length === 0 ? (
+            <p className="text-sm text-gray-400 italic">No medication tasks for this customer.</p>
+          ) : (
+            <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-100">
+              <table className="min-w-full text-xs">
+                <thead className="bg-gray-50 text-gray-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Medication</th>
+                    <th className="px-3 py-2 text-left">Status</th>
+                    <th className="px-3 py-2 text-left">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {medTasks.map((t: any) => (
+                    <tr key={t.id} className="hover:bg-gray-50">
+                      <td className="px-3 py-2">
+                        {Array.isArray(t.medications) && t.medications.length > 0
+                          ? t.medications.map((m: any, i: number) => (
+                              <div key={i}>
+                                <span className="font-medium">{m.name}</span>
+                                {m.dose ? <span className="text-gray-400"> · {m.dose}</span> : ""}
+                              </div>
+                            ))
+                          : <span>{t.medication || "—"}</span>
+                        }
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          t.status === "completed" ? "bg-emerald-50 text-emerald-700"
+                            : t.status === "cancelled" ? "bg-gray-100 text-gray-500"
+                            : "bg-amber-50 text-amber-700"
+                        }`}>{t.status}</span>
+                      </td>
+                      <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
+                        {new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        {t.completed_by && <div className="text-[10px] text-emerald-600">by {t.completed_by}</div>}
                       </td>
                     </tr>
                   ))}
