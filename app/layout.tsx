@@ -7,6 +7,7 @@ import "./globals.css"
 import { FooterInLayout } from "@/components/footer-in-layout"
 import { Suspense } from "react"
 import { HeaderInLayout } from "@/components/header-in-layout"
+import ChatWidgetLoader from "@/components/ChatWidgetLoader"
 
 export const metadata: Metadata = {
   title: "North Falmouth Pharmacy | Long Term Care Pharmacy",
@@ -32,6 +33,7 @@ export default function RootLayout({
           <FooterInLayout />
         </Suspense>
         <Analytics />
+        <Suspense fallback={null}><ChatWidgetLoader /></Suspense>
       </body>
     </html>
   )
