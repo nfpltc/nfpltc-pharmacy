@@ -139,6 +139,7 @@ export async function POST(req: NextRequest) {
         status: "pending",
         created_by: body.created_by ? String(body.created_by).trim() : null,
         follow_up_count: 0,
+        follow_up_interval_hours: [3, 6, 12, 24].includes(Number(body.follow_up_interval_hours)) ? Number(body.follow_up_interval_hours) : 12,
         last_notified_at: new Date().toISOString(),
       })
       .select()
@@ -244,6 +245,10 @@ export async function PATCH(req: NextRequest) {
     if ("priority" in body) updates.priority = body.priority === "urgent" ? "urgent" : "normal"
     if ("instructions" in body) updates.instructions = body.instructions ? String(body.instructions).trim() : null
     if ("comments" in body) updates.comments = body.comments ? String(body.comments).trim() : null
+    if ("follow_up_interval_hours" in body) {
+      const h = Number(body.follow_up_interval_hours)
+      if ([3, 6, 12, 24].includes(h)) updates.follow_up_interval_hours = h
+    }
     if ("medications" in body && Array.isArray(body.medications)) {
       const meds = body.medications
         .map((m: any) => ({
