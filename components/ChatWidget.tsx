@@ -85,8 +85,8 @@ export default function ChatWidget() {
     } catch {}
   }
 
-  const sendMessage = async () => {
-    const text = input.trim()
+  const sendMessage = async (overrideText?: string) => {
+    const text = (overrideText || input).trim()
     if (!text || loading) return
     setInput("")
     setMessages(prev => [...prev, { role: "user", content: text }])
@@ -200,16 +200,31 @@ export default function ChatWidget() {
         ) : (
         <>
         {messages.length === 0 && (
-          <div className="flex flex-col items-center py-6 text-center">
-            <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50">
-              <Bot className="h-5 w-5 text-[#0B7C79]" />
-            </div>
-            <p className="text-sm text-gray-700">Hi! How can I help you today?</p>
-            <div className="mt-3 flex flex-wrap justify-center gap-1.5">
-              {["What are your hours?", "Do you deliver?", "How do I transfer a prescription?"].map(q => (
-                <button key={q} onClick={() => { setInput(q); setTimeout(() => sendMessage(), 50) }}
-                  className="rounded-full border border-gray-200 px-3 py-1 text-xs text-gray-600 hover:border-[#0B7C79] hover:text-[#0B7C79]">{q}</button>
+          <div className="flex flex-col items-center py-4 text-center">
+            <div className="mb-3 text-4xl animate-bounce">👋</div>
+            <h3 className="text-base font-semibold text-gray-800">{getGreeting()}</h3>
+            <p className="mt-1 text-sm text-gray-500">I'm your pharmacy helper. Ask me anything about our services!</p>
+
+            <div className="mt-4 w-full space-y-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Quick questions</p>
+              {[
+                { emoji: "🕐", text: "Are you open right now?" },
+                { emoji: "💊", text: "How do I refill my prescription?" },
+                { emoji: "🚗", text: "Do you deliver medications?" },
+                { emoji: "💉", text: "What vaccinations do you offer?" },
+                { emoji: "📋", text: "How do I transfer a prescription?" },
+              ].map(q => (
+                <button key={q.text} onClick={() => sendMessage(q.text)}
+                  className="flex w-full items-center gap-2.5 rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-left text-sm text-gray-700 shadow-sm transition-all hover:border-[#0B7C79] hover:bg-emerald-50 hover:shadow-md">
+                  <span className="text-base">{q.emoji}</span>
+                  <span>{q.text}</span>
+                </button>
               ))}
+            </div>
+
+            <div className="mt-4 flex items-center gap-1.5 text-xs text-gray-400">
+              <span className={`h-2 w-2 rounded-full ${isBusinessHours() ? "bg-emerald-400" : "bg-gray-300"}`}></span>
+              {isBusinessHours() ? "We're open now · Mon–Fri 8:30–4:30" : "Currently closed · Mon–Fri 8:30–4:30"}
             </div>
           </div>
         )}
@@ -304,4 +319,13 @@ function isBusinessHours(): boolean {
   const hour = et.getHours()
   const min = et.getMinutes()
   return day >= 1 && day <= 5 && ((hour > 8 || (hour === 8 && min >= 30)) && hour < 16) || (hour === 16 && min <= 30)
+}
+
+function getGreeting(): string {
+  const now = new Date()
+  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }))
+  const hour = et.getHours()
+  if (hour < 12) return "Good morning! ☀️"
+  if (hour < 17) return "Good afternoon! 🌤️"
+  return "Good evening! 🌙"
 }
