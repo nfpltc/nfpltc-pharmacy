@@ -294,3 +294,193 @@ async function runMedicationFollowup(req: NextRequest): Promise<any> {
 
   return { followed_up: followed.length, total_emailed: totalEmailed, patients: followed }
 }
+
+// ── Daily Task Digest: sends admin a morning summary email ────────────────
+async function runDailyDigest(): Promise<any> {
+  const sb = admin()
+  const RESEND_API_KEY = process.env.RESEND_API_KEY
+  const FROM_EMAIL = process.env.FROM_EMAIL || process.env.STATEMENT_FROM_EMAIL
+  const ADMIN_EMAIL = process.env.TO_EMAIL || process.env.FROM_EMAIL
+  if (!RESEND_API_KEY || !FROM_EMAIL || !ADMIN_EMAIL) {
+    return { skipped: true, reason: "Email not configured" }
+  }
+
+  // Only send once per day: check if we already sent a digest today
+  const todayStart = new Date()
+  todayStart.setUTCHours(0, 0, 0, 0)
+  const { count: alreadySent } = await sb
+    .from("customer_email_log")
+    .select("id", { count: "exact", head: true })
+    .eq("email_type", "task_digest")
+    .gte("sent_at", todayStart.toISOString())
+  if ((alreadySent ?? 0) > 0) {
+    return { skipped: true, reason: "Digest already sent today" }
+  }
+
+  // Gather task data
+  const now = new Date()
+  const todayISO = todayStart.toISOString()
+  const next12h = new Date(now.getTime() + 12 * 3600000).toISOString()
+
+  // Completed today
+  const { data: completedToday } = await sb
+    .from("medication_tasks")
+    .select("patient_name, medication, completed_by, completed_at, completed_via")
+    .eq("status", "completed")
+    .gte("completed_at", todayISO)
+    .order("completed_at", { ascending: false })
+    .limit(50)
+
+  // All pending
+  const { data: pending } = await sb
+    .from("medication_tasks")
+    .select("patient_name, medication, medications, priority, created_at, follow_up_count, follow_up_interval_hours, last_notified_at")
+    .eq("status", "pending")
+    .order("priority", { ascending: true })
+    .order("created_at", { ascending: true })
+    .limit(50)
+
+  // Overdue: pending tasks where any medication's due_at is past
+  const overdue = (pending || []).filter(t => {
+    const meds = Array.isArray(t.medications) ? t.medications : []
+    return meds.some((m: any) => m.due_at && new Date(m.due_at) < now)
+  })
+
+  // Upcoming: pending tasks with medication due in next 12 hours
+  const upcoming = (pending || []).filter(t => {
+    const meds = Array.isArray(t.medications) ? t.medications : []
+    return meds.some((m: any) => {
+      if (!m.due_at) return false
+      const d = new Date(m.due_at)
+      return d >= now && d <= new Date(next12h)
+    })
+  })
+
+  const pendingCount = (pending || []).length
+  const completedCount = (completedToday || []).length
+  const overdueCount = overdue.length
+  const upcomingCount = upcoming.length
+
+  // Build the email
+  const html = renderDigestEmail({
+    completedToday: completedToday || [],
+    pending: pending || [],
+    overdue,
+    upcoming,
+    pendingCount,
+    completedCount,
+    overdueCount,
+    upcomingCount,
+  })
+
+  const resend = new Resend(RESEND_API_KEY)
+  try {
+    const subject = `📋 Task Digest: ${pendingCount} pending${overdueCount ? `, ${overdueCount} overdue` : ""}${completedCount ? `, ${completedCount} completed today` : ""}`
+    await resend.emails.send({
+      from: FROM_EMAIL,
+      to: ADMIN_EMAIL,
+      subject,
+      html,
+      text: `Task Digest\n\nPending: ${pendingCount}\nOverdue: ${overdueCount}\nCompleted today: ${completedCount}\nUpcoming (12h): ${upcomingCount}`,
+    })
+
+    // Log it so we don't send again today
+    try {
+      await sb.from("customer_email_log").insert({
+        account_number: "SYSTEM",
+        email_to: ADMIN_EMAIL,
+        email_type: "task_digest",
+        subject: `Task Digest`,
+        status: "sent",
+        sent_at: new Date().toISOString(),
+      })
+    } catch {}
+
+    return { sent: true, pending: pendingCount, overdue: overdueCount, completed_today: completedCount, upcoming_12h: upcomingCount }
+  } catch (e: any) {
+    return { error: e.message }
+  }
+}
+
+function renderDigestEmail(d: {
+  completedToday: any[]; pending: any[]; overdue: any[]; upcoming: any[];
+  pendingCount: number; completedCount: number; overdueCount: number; upcomingCount: number;
+}): string {
+  const section = (title: string, color: string, icon: string, items: any[], renderer: (t: any) => string) => {
+    if (items.length === 0) return `<p style="color:#9CA3AF;font-size:13px;margin:8px 0">${icon} No ${title.toLowerCase()}</p>`
+    return `
+      <h3 style="margin:16px 0 8px;color:${color};font-size:15px">${icon} ${title} (${items.length})</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        ${items.map(renderer).join("")}
+      </table>`
+  }
+
+  const taskRow = (t: any, extra?: string) => `
+    <tr style="border-bottom:1px solid #F3F4F6">
+      <td style="padding:6px 8px;font-weight:600;color:#111827">${escapeHtml(t.patient_name)}</td>
+      <td style="padding:6px 8px;color:#374151">${escapeHtml(t.medication || "")}</td>
+      <td style="padding:6px 8px;color:#6B7280;font-size:12px">${extra || ""}</td>
+    </tr>`
+
+  return `<!doctype html><html><body style="margin:0;background:#F7F5EF;font-family:Arial,sans-serif">
+    <div style="max-width:600px;margin:0 auto;padding:24px">
+      <div style="background:${BRAND};border-radius:12px;padding:20px;text-align:center">
+        <h1 style="margin:0;color:#fff;font-size:20px">North Falmouth Pharmacy</h1>
+        <p style="margin:6px 0 0;color:#ffffffcc;font-size:13px">Daily Medication Task Digest</p>
+      </div>
+      <div style="background:#fff;border-radius:12px;padding:20px;margin-top:16px">
+        <!-- Summary cards -->
+        <table style="width:100%;border-collapse:collapse;margin-bottom:16px">
+          <tr>
+            <td style="text-align:center;padding:12px;background:#FEF3C7;border-radius:8px;width:25%">
+              <div style="font-size:24px;font-weight:700;color:#92400E">${d.pendingCount}</div>
+              <div style="font-size:11px;color:#92400E">Pending</div>
+            </td>
+            <td style="width:8px"></td>
+            <td style="text-align:center;padding:12px;background:${d.overdueCount > 0 ? "#FEE2E2" : "#F3F4F6"};border-radius:8px;width:25%">
+              <div style="font-size:24px;font-weight:700;color:${d.overdueCount > 0 ? "#B91C1C" : "#6B7280"}">${d.overdueCount}</div>
+              <div style="font-size:11px;color:${d.overdueCount > 0 ? "#B91C1C" : "#6B7280"}">Overdue</div>
+            </td>
+            <td style="width:8px"></td>
+            <td style="text-align:center;padding:12px;background:#D1FAE5;border-radius:8px;width:25%">
+              <div style="font-size:24px;font-weight:700;color:#065F46">${d.completedCount}</div>
+              <div style="font-size:11px;color:#065F46">Done Today</div>
+            </td>
+            <td style="width:8px"></td>
+            <td style="text-align:center;padding:12px;background:#EFF6FF;border-radius:8px;width:25%">
+              <div style="font-size:24px;font-weight:700;color:#1E40AF">${d.upcomingCount}</div>
+              <div style="font-size:11px;color:#1E40AF">Next 12h</div>
+            </td>
+          </tr>
+        </table>
+
+        ${d.overdueCount > 0 ? section("Overdue", "#B91C1C", "🔴", d.overdue, t => {
+          const meds = Array.isArray(t.medications) ? t.medications : []
+          const overdueMed = meds.find((m: any) => m.due_at && new Date(m.due_at) < new Date())
+          const ago = overdueMed ? Math.round((Date.now() - new Date(overdueMed.due_at).getTime()) / 3600000) + "h ago" : ""
+          return taskRow(t, `${t.priority === "urgent" ? "⚠ " : ""}${ago}`)
+        }) : ""}
+
+        ${section("Upcoming (Next 12h)", "#1E40AF", "🔵", d.upcoming, t => {
+          const meds = Array.isArray(t.medications) ? t.medications : []
+          const nextMed = meds.find((m: any) => m.due_at && new Date(m.due_at) >= new Date())
+          const inH = nextMed ? Math.round((new Date(nextMed.due_at).getTime() - Date.now()) / 3600000) + "h" : ""
+          return taskRow(t, `in ${inH}`)
+        })}
+
+        ${section("All Pending", "#92400E", "🟡", d.pending, t =>
+          taskRow(t, `${t.priority === "urgent" ? "⚠ urgent" : ""} ${t.follow_up_count ? `· ${t.follow_up_count} reminder${t.follow_up_count > 1 ? "s" : ""}` : ""}`)
+        )}
+
+        ${section("Completed Today", "#065F46", "✅", d.completedToday, t =>
+          taskRow(t, `by ${escapeHtml(t.completed_by || "—")} ${t.completed_via === "link" ? "(email)" : "(manual)"}`)
+        )}
+
+        <p style="margin:20px 0 0;text-align:center">
+          <a href="${process.env.NEXT_PUBLIC_SITE_URL || "https://www.nfpltc.com"}/admin/medication-tasks" style="display:inline-block;background:${BRAND};color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-weight:600;font-size:14px">View All Tasks →</a>
+        </p>
+      </div>
+      <p style="text-align:center;color:#9CA3AF;font-size:12px;margin-top:12px">North Falmouth Pharmacy · (508) 564-4459</p>
+    </div>
+  </body></html>`
+}
