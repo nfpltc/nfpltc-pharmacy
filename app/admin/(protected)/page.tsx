@@ -3,13 +3,14 @@ import { cookies } from "next/headers"
 import { createServerClient } from "@supabase/ssr"
 import {
   ShieldCheck, Users, LogOut,
-  Briefcase, CreditCard, Syringe, MessageSquare, Receipt, UserCheck, BookOpen, UsersRound, FileStack, Bot, Pill
+  Briefcase, CreditCard, Syringe, MessageSquare, Receipt, UserCheck, BookOpen, UsersRound, FileStack, Bot, Pill, MessageCircle
 } from "lucide-react"
 import AnalyticsDashboard from "@/components/AnalyticsDashboard"
 
 const sidebarLinks = [
   { href: "/admin", label: "Overview", icon: ShieldCheck, active: true },
   { href: "/admin/assistant", label: "AI Assistant", icon: Bot },
+  { href: "/admin/chats", label: "Chats", icon: MessageCircle },
   { href: "/admin/enrollments", label: "Enrollments", icon: UserCheck },
   { href: "/admin/credit-cards", label: "Credit Cards", icon: CreditCard },
   { href: "/admin/vaccines", label: "Vaccines", icon: Syringe },
