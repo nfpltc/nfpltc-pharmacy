@@ -16,7 +16,6 @@ export const maxDuration = 60
 //   3. Medication follow-up — resends reminders for pending tasks
 // ============================================================================
 
-
 function admin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -79,6 +78,13 @@ async function handle(req: NextRequest) {
     results.medication_followup = await runMedicationFollowup(req)
   } catch (e: any) {
     results.medication_followup = { error: e.message }
+  }
+
+  // ── Job 4: Daily Task Digest to Admin ──────────────────────────────────
+  try {
+    results.daily_digest = await runDailyDigest()
+  } catch (e: any) {
+    results.daily_digest = { error: e.message }
   }
 
   return NextResponse.json({ timestamp: new Date().toISOString(), ...results })
@@ -187,7 +193,6 @@ async function runNewsletter(req: NextRequest, force: boolean): Promise<any> {
 
 // ── Medication follow-ups: pending tasks needing reminders ────────────────
 const MAX_FOLLOWUPS = 3
-const MIN_HOURS = 12
 
 async function runMedicationFollowup(req: NextRequest): Promise<any> {
   const sb = admin()
@@ -195,24 +200,31 @@ async function runMedicationFollowup(req: NextRequest): Promise<any> {
   const FROM_EMAIL = process.env.FROM_EMAIL || process.env.STATEMENT_FROM_EMAIL
   if (!RESEND_API_KEY || !FROM_EMAIL) return { skipped: true, reason: "Email not configured" }
 
-  const cutoff = new Date(Date.now() - MIN_HOURS * 3600000).toISOString()
+  // Fetch all pending tasks that haven't exceeded max follow-ups.
+  // We check each task's individual interval in code since they vary.
   const { data: tasks } = await sb
     .from("medication_tasks")
     .select("*")
     .eq("status", "pending")
     .lt("follow_up_count", MAX_FOLLOWUPS)
-    .lt("last_notified_at", cutoff)
     .order("created_at", { ascending: true })
     .limit(50)
 
   if (!tasks || tasks.length === 0) return { followed_up: 0, reason: "No tasks need follow-up" }
 
+  const now = Date.now()
   const resend = new Resend(RESEND_API_KEY)
   const base = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://www.nfpltc.com"
   let totalEmailed = 0
   const followed: string[] = []
 
   for (const task of tasks) {
+    // Per-task interval check (default 12 hours if not set)
+    const intervalHours = task.follow_up_interval_hours || 12
+    const lastNotified = task.last_notified_at ? new Date(task.last_notified_at).getTime() : 0
+    const hoursSince = (now - lastNotified) / 3_600_000
+
+    if (hoursSince < intervalHours) continue  // not due yet for THIS task
     const { data: recipients } = await sb
       .from("medication_task_recipients")
       .select("id, email, name, token, clicked_at")
