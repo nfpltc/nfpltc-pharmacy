@@ -47,14 +47,18 @@ export async function GET() {
   }
 }
 
-// PATCH /api/admin/chat-settings  Body: { enabled: boolean }
+// PATCH /api/admin/chat-settings  Body: { enabled?, visible? }
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
+    const updates: Record<string, any> = { updated_at: new Date().toISOString() }
+    if ("enabled" in body) updates.enabled = Boolean(body.enabled)
+    if ("visible" in body) updates.visible = Boolean(body.visible)
+
     const sb = admin()
     const { data, error } = await sb
       .from("chat_settings")
-      .upsert({ id: 1, enabled: Boolean(body.enabled), updated_at: new Date().toISOString() }, { onConflict: "id" })
+      .upsert({ id: 1, ...updates }, { onConflict: "id" })
       .select()
       .single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
