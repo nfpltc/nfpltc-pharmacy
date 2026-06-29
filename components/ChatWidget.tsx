@@ -7,6 +7,7 @@ interface Msg { role: "user" | "assistant" | "admin"; content: string }
 export default function ChatWidget() {
   const [open, setOpen] = useState(false)
   const [chatEnabled, setChatEnabled] = useState<boolean | null>(null)
+  const [chatVisible, setChatVisible] = useState<boolean | null>(null)
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
@@ -27,8 +28,10 @@ export default function ChatWidget() {
         const r = await fetch("/api/chat/status")
         const d = await r.json()
         setChatEnabled(d.enabled !== false)
+        setChatVisible(d.visible !== false)
       } catch {
-        setChatEnabled(true) // default to enabled if check fails
+        setChatEnabled(true)
+        setChatVisible(true)
       }
     })()
   }, [])
@@ -147,8 +150,8 @@ export default function ChatWidget() {
     setShowEscForm(false)
   }
 
-  // Don't render if admin has disabled chat, or still checking
-  if (chatEnabled === null || chatEnabled === false) return null
+  // Hidden = bubble doesn't appear at all
+  if (chatVisible === null || chatVisible === false) return null
 
   if (!open) {
     return (
@@ -183,6 +186,19 @@ export default function ChatWidget() {
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+        {!chatEnabled ? (
+          <div className="flex h-full flex-col items-center justify-center py-8 text-center">
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
+              <MessageCircle className="h-6 w-6 text-gray-400" />
+            </div>
+            <h3 className="text-base font-semibold text-gray-700">We're currently offline</h3>
+            <p className="mt-1 max-w-xs text-sm text-gray-500">
+              Our chat is unavailable right now. Please call us at <a href="tel:5085644459" className="text-[#0B7C79] font-medium">(508) 564-4459</a> or email <a href="mailto:wecare@nfpltc.com" className="text-[#0B7C79] font-medium">wecare@nfpltc.com</a>.
+            </p>
+            <p className="mt-2 text-xs text-gray-400">Mon–Fri 8:30 AM – 4:30 PM EST</p>
+          </div>
+        ) : (
+        <>
         {messages.length === 0 && (
           <div className="flex flex-col items-center py-6 text-center">
             <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50">
@@ -234,10 +250,12 @@ export default function ChatWidget() {
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for a team member to respond…
           </div>
         )}
+        </>
+        )}
       </div>
 
-      {/* Escalation form */}
-      {showEscForm && (
+      {/* Escalation form — only when enabled */}
+      {chatEnabled && showEscForm && (
         <div className="border-t border-gray-100 bg-gray-50 px-4 py-3">
           <p className="mb-2 text-xs font-medium text-gray-700">How can we reach you?</p>
           <input value={escName} onChange={e => setEscName(e.target.value)} placeholder="Your name" className="mb-1.5 w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm" />
@@ -252,8 +270,8 @@ export default function ChatWidget() {
         </div>
       )}
 
-      {/* Input bar */}
-      {!showEscForm && (
+      {/* Input bar — only when enabled */}
+      {chatEnabled && !showEscForm && (
         <div className="border-t border-gray-100 px-3 py-2">
           <div className="flex items-center gap-2">
             <input
