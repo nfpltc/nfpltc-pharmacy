@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { ArrowLeft, MessageCircle, User, Bot, Loader2, Trash2, Clock, CheckCircle2, AlertCircle, Power } from "lucide-react"
+import { ArrowLeft, MessageCircle, User, Bot, Loader2, Trash2, Clock, CheckCircle2, AlertCircle, Power, Eye, EyeOff } from "lucide-react"
 
 export default function AdminChatsPage() {
   const [convs, setConvs] = useState<any[]>([])
@@ -14,6 +14,7 @@ export default function AdminChatsPage() {
 
   // Settings
   const [chatEnabled, setChatEnabled] = useState(true)
+  const [chatVisible, setChatVisible] = useState(true)
   const [stats, setStats] = useState({ total_conversations: 0, today: 0, this_week: 0, escalated: 0, total_messages: 0 })
   const [toggling, setToggling] = useState(false)
 
@@ -23,22 +24,27 @@ export default function AdminChatsPage() {
       const d = await r.json()
       if (r.ok) {
         setChatEnabled(d.settings?.enabled ?? true)
+        setChatVisible(d.settings?.visible ?? true)
         setStats(d.stats || stats)
       }
     } catch {}
   }
 
-  const toggleChat = async () => {
+  const toggleChat = async (field: "enabled" | "visible") => {
     setToggling(true)
-    const newVal = !chatEnabled
-    setChatEnabled(newVal)
+    const newVal = field === "enabled" ? !chatEnabled : !chatVisible
+    if (field === "enabled") setChatEnabled(newVal)
+    else setChatVisible(newVal)
     try {
       await fetch("/api/admin/chat-settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: newVal }),
+        body: JSON.stringify({ [field]: newVal }),
       })
-    } catch { setChatEnabled(!newVal) }
+    } catch {
+      if (field === "enabled") setChatEnabled(!newVal)
+      else setChatVisible(!newVal)
+    }
     finally { setToggling(false) }
   }
 
@@ -97,22 +103,37 @@ export default function AdminChatsPage() {
               <div>
                 <h3 className="text-sm font-semibold text-gray-900">Website Chatbot</h3>
                 <p className="text-xs text-gray-500">
-                  {chatEnabled ? "Active — visitors can chat with the AI assistant" : "Disabled — chat bubble is hidden from your website"}
+                  {!chatVisible ? "Hidden — chat bubble is not visible on your website"
+                    : !chatEnabled ? "Visible but offline — bubble shows, but displays 'we're offline'"
+                    : "Active — visitors can chat with the AI assistant"}
                 </p>
               </div>
             </div>
-            <button
-              onClick={toggleChat}
-              disabled={toggling}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50 ${
-                chatEnabled
-                  ? "bg-red-50 text-red-700 hover:bg-red-100"
-                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-              }`}
-            >
-              <Power className="h-4 w-4" />
-              {chatEnabled ? "Turn Off" : "Turn On"}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => toggleChat("visible")}
+                disabled={toggling}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
+                  chatVisible
+                    ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                }`}
+              >
+                {chatVisible ? <><EyeOff className="h-4 w-4" /> Hide</> : <><Eye className="h-4 w-4" /> Show</>}
+              </button>
+              <button
+                onClick={() => toggleChat("enabled")}
+                disabled={toggling}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
+                  chatEnabled
+                    ? "bg-red-50 text-red-700 hover:bg-red-100"
+                    : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                }`}
+              >
+                <Power className="h-4 w-4" />
+                {chatEnabled ? "Turn Off" : "Turn On"}
+              </button>
+            </div>
           </div>
           {/* Stats */}
           <div className="mt-3 flex flex-wrap gap-4 border-t border-gray-100 pt-3 text-xs text-gray-500">
