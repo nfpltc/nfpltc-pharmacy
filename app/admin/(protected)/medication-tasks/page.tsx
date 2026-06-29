@@ -19,6 +19,7 @@ interface Task {
   completed_by: string | null
   completed_via: string | null
   follow_up_count?: number
+  follow_up_interval_hours?: number
   last_notified_at?: string | null
   recipients: Recipient[]
 }
@@ -209,6 +210,7 @@ function TaskCard({ t, onComplete, onCancel, onEdit, onDelete }: { t: Task; onCo
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
             <span className="inline-flex items-center gap-1"><Mail className="h-3 w-3" /> {t.recipients?.length || 0} notified</span>
             {(t.follow_up_count || 0) > 0 && <span className="text-amber-600">⏰ {t.follow_up_count} reminder{(t.follow_up_count || 0) > 1 ? "s" : ""} sent</span>}
+            {t.status === "pending" && <span className="text-gray-400">⟳ every {t.follow_up_interval_hours || 12}h</span>}
             {clicked > 0 && <span className="text-emerald-600">{clicked} opened the link</span>}
             <span>{new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
           </div>
@@ -258,6 +260,7 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const [meds, setMeds] = useState<MedLine[]>([{ name: "", dose: "", due_at: "", instructions: "" }])
   const [comments, setComments] = useState("")
   const [urgent, setUrgent] = useState(false)
+  const [followUpInterval, setFollowUpInterval] = useState(12)
   const [saving, setSaving] = useState(false)
   const [polishing, setPolishing] = useState(false)
   const [error, setError] = useState("")
@@ -376,7 +379,9 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
             due_at: m.due_at ? new Date(m.due_at).toISOString() : null,
             instructions: m.instructions || null,
           })),
-          comments, priority: urgent ? "urgent" : "normal", recipients: allRecipients,
+          comments, priority: urgent ? "urgent" : "normal",
+          follow_up_interval_hours: followUpInterval,
+          recipients: allRecipients,
         }),
       })
       const d = await r.json()
@@ -468,6 +473,19 @@ function NewTaskModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
           <input type="checkbox" checked={urgent} onChange={e => setUrgent(e.target.checked)} /> Mark as urgent
         </label>
 
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500">Follow-up reminder frequency</label>
+          <div className="flex gap-1.5">
+            {[{ v: 3, l: "Every 3h" }, { v: 6, l: "Every 6h" }, { v: 12, l: "Every 12h" }, { v: 24, l: "Daily" }].map(f => (
+              <button key={f.v} type="button" onClick={() => setFollowUpInterval(f.v)}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium ${followUpInterval === f.v ? "bg-[#0B7C79] text-white" : "border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                {f.l}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-gray-400">How often to resend the email if not completed (max 3 reminders)</p>
+        </div>
+
         <div className="rounded-lg bg-gray-50 p-3">
           <p className="mb-2 text-xs font-medium text-gray-600">Who will be notified</p>
           {defaultRecipients.length > 0 && (
@@ -534,6 +552,7 @@ function EditTaskModal({ task, onClose, onSaved }: { task: Task; onClose: () => 
   )
   const [comments, setComments] = useState(task.comments || "")
   const [urgent, setUrgent] = useState(task.priority === "urgent")
+  const [followUpInterval, setFollowUpInterval] = useState(task.follow_up_interval_hours || 12)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
@@ -556,6 +575,7 @@ function EditTaskModal({ task, onClose, onSaved }: { task: Task; onClose: () => 
           patient_account: account || null,
           priority: urgent ? "urgent" : "normal",
           comments: comments || null,
+          follow_up_interval_hours: followUpInterval,
           medications: cleanMeds.map(m => ({
             name: m.name, dose: m.dose || null,
             due_at: m.due_at ? new Date(m.due_at).toISOString() : null,
@@ -613,6 +633,17 @@ function EditTaskModal({ task, onClose, onSaved }: { task: Task; onClose: () => 
         <label className="flex items-center gap-2 text-sm text-gray-700">
           <input type="checkbox" checked={urgent} onChange={e => setUrgent(e.target.checked)} /> Mark as urgent
         </label>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500">Follow-up reminder frequency</label>
+          <div className="flex gap-1.5">
+            {[{ v: 3, l: "Every 3h" }, { v: 6, l: "Every 6h" }, { v: 12, l: "Every 12h" }, { v: 24, l: "Daily" }].map(f => (
+              <button key={f.v} type="button" onClick={() => setFollowUpInterval(f.v)}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium ${followUpInterval === f.v ? "bg-[#0B7C79] text-white" : "border border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                {f.l}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="flex justify-end gap-2 pt-1">
