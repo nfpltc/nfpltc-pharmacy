@@ -12,8 +12,8 @@ export async function GET() {
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
       { auth: { persistSession: false, autoRefreshToken: false } }
     )
-    const { data } = await sb.from("chat_settings").select("enabled").eq("id", 1).maybeSingle()
-    return NextResponse.json({ enabled: data?.enabled ?? true })
+    const { data } = await sb.from("chat_settings").select("enabled, visible").eq("id", 1).maybeSingle()
+    return NextResponse.json({ enabled: data?.enabled ?? true, visible: data?.visible ?? true })
   } catch {
     return NextResponse.json({ enabled: true }) // default to enabled if check fails
   }
