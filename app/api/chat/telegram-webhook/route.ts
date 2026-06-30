@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { generateAdminSuggestion } from "@/lib/chat-ai"
-import type { ChatMessage } from "@/lib/chat-ai"
-import { Resend } from "resend"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-export const maxDuration = 30
 
 function sb() {
   return createClient(
@@ -16,153 +12,140 @@ function sb() {
   )
 }
 
-// POST /api/chat/escalate
-// Body: { conversation_id, name?, email?, phone?, reason? }
-// Marks conversation as escalated, sends Telegram notification with AI suggestion.
-// Also sends email alert as backup.
+// POST /api/chat/telegram-webhook
+// Receives updates from Telegram: callback_query (button taps) and messages (admin replies).
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}))
-    const convId = String(body.conversation_id || "").trim()
-    if (!convId) return NextResponse.json({ error: "conversation_id required" }, { status: 400 })
-
-    const client = sb()
-
-    // Update conversation with visitor info
-    const updates: Record<string, any> = {
-      status: "escalated",
-      escalated_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }
-    if (body.name) updates.visitor_name = String(body.name).trim()
-    if (body.email) updates.visitor_email = String(body.email).trim()
-    if (body.phone) updates.visitor_phone = String(body.phone).trim()
-
-    await client.from("chat_conversations").update(updates).eq("id", convId)
-
-    // Get conversation history
-    const { data: messages } = await client
-      .from("chat_messages")
-      .select("role, content")
-      .eq("conversation_id", convId)
-      .order("created_at", { ascending: true })
-
-    const chatHistory: ChatMessage[] = (messages || []).map(m => ({
-      role: m.role as "user" | "assistant" | "admin",
-      content: m.content,
-    }))
-
-    // Generate AI suggestion for admin
-    const suggestion = await generateAdminSuggestion(chatHistory)
-    if (suggestion) {
-      await client.from("chat_conversations")
-        .update({ ai_suggestion: suggestion })
-        .eq("id", convId)
-    }
-
-    // Build conversation summary
-    const visitorName = body.name || "Anonymous visitor"
-    const lastUserMsg = chatHistory.filter(m => m.role === "user").slice(-1)[0]?.content || ""
-    const contact = [body.email, body.phone].filter(Boolean).join(" · ") || "No contact info"
-    const reason = body.reason ? String(body.reason).trim() : ""
-
-    // Send to Telegram
-    let telegramSent = false
+    const update = await req.json().catch(() => ({}))
     const token = process.env.TELEGRAM_BOT_TOKEN
-    const groupId = process.env.TELEGRAM_GROUP_ID
+    if (!token) return NextResponse.json({ ok: true })
 
-    if (token && groupId) {
-      const chatSummary = chatHistory.slice(-4).map(m =>
-        `${m.role === "user" ? "👤" : "🤖"} ${m.content}`
-      ).join("\n")
+    // Handle callback query (admin tapped "Send Suggested Reply" or "I'll write my own")
+    if (update.callback_query) {
+      const cb = update.callback_query
+      const data = cb.data || ""
+      const callbackId = cb.id
 
-      let text = `🔔 *New chat request*\n\n`
-      text += `👤 *${escTg(visitorName)}*\n`
-      text += `📞 ${escTg(contact)}\n`
-      if (reason) text += `💬 ${escTg(reason)}\n`
-      text += `\n📝 *Recent chat:*\n${escTg(chatSummary)}\n`
-      if (suggestion) {
-        text += `\n💡 *Suggested reply:*\n${escTg(suggestion)}`
-      }
+      // Acknowledge the button tap
+      await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callback_query_id: callbackId }),
+      })
 
-      try {
-        const tgResp = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      if (data.startsWith("send_")) {
+        // Admin chose to send the AI suggestion
+        const convId = data.replace("send_", "")
+        const client = sb()
+        const { data: conv } = await client
+          .from("chat_conversations")
+          .select("ai_suggestion, visitor_name")
+          .eq("id", convId)
+          .maybeSingle()
+
+        if (conv?.ai_suggestion) {
+          const adminName = cb.from?.first_name || "Pharmacy team"
+          const reply = conv.visitor_name
+            ? `Hi ${conv.visitor_name}, ${conv.ai_suggestion}`
+            : conv.ai_suggestion
+
+          // Save as admin message in the chat
+          await client.from("chat_messages").insert({
+            conversation_id: convId,
+            role: "admin",
+            content: reply,
+          })
+          await client.from("chat_conversations").update({
+
+
+            updated_at: new Date().toISOString(),
+          }).eq("id", convId)
+
+          // Confirm in Telegram
+          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: cb.message?.chat?.id,
+              text: `✅ Reply sent by ${adminName}:\n"${reply.slice(0, 200)}"`,
+              reply_to_message_id: cb.message?.message_id,
+            }),
+          })
+        }
+      } else if (data.startsWith("own_")) {
+        // Admin chose to write their own reply
+        const convId = data.replace("own_", "")
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            chat_id: groupId,
-            text,
-            parse_mode: "Markdown",
-            reply_markup: suggestion ? {
-              inline_keyboard: [[
-                { text: "✅ Send Suggested Reply", callback_data: `send_${convId}` },
-                { text: "✏️ I'll write my own", callback_data: `own_${convId}` },
-              ]]
-            } : undefined,
+            chat_id: cb.message?.chat?.id,
+            text: `✏️ Reply to this message with your response for the customer.`,
+            reply_to_message_id: cb.message?.message_id,
           }),
         })
-
-        const tgData = await tgResp.json()
-        if (tgData.ok && tgData.result?.message_id) {
-          await client.from("chat_conversations")
-            .update({ telegram_msg_id: tgData.result.message_id })
-            .eq("id", convId)
-          telegramSent = true
-        }
-      } catch (e) {
-        console.error("Telegram send failed:", e)
       }
+
+      return NextResponse.json({ ok: true })
     }
 
-    // Also send email as backup
-    let emailSent = false
-    const RESEND_API_KEY = process.env.RESEND_API_KEY
-    const FROM_EMAIL = process.env.FROM_EMAIL || process.env.STATEMENT_FROM_EMAIL
-    const TO_EMAIL = process.env.TO_EMAIL
-
-    if (RESEND_API_KEY && FROM_EMAIL && TO_EMAIL) {
-      try {
-        const resend = new Resend(RESEND_API_KEY)
-        const chatLines = chatHistory.slice(-6).map(m =>
-          `<p style="margin:4px 0;color:${m.role === "user" ? "#111827" : "#6B7280"}"><strong>${m.role === "user" ? "Customer" : "Bot"}:</strong> ${escHtml(m.content)}</p>`
-        ).join("")
-
-        await resend.emails.send({
-          from: FROM_EMAIL,
-          to: TO_EMAIL,
-          subject: `🔔 Chat request from ${visitorName}`,
-          html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:20px">
-            <h2 style="color:#0B7C79">New Chat Request</h2>
-            <p><strong>Customer:</strong> ${escHtml(visitorName)}</p>
-            <p><strong>Contact:</strong> ${escHtml(contact)}</p>
-            ${reason ? `<p><strong>About:</strong> ${escHtml(reason)}</p>` : ""}
-            <hr style="border:none;border-top:1px solid #E5E7EB;margin:16px 0">
-            <h3 style="color:#6B7280;font-size:14px">Chat History</h3>
-            ${chatLines}
-            ${suggestion ? `<hr style="border:none;border-top:1px solid #E5E7EB;margin:16px 0"><h3 style="color:#0B7C79;font-size:14px">💡 Suggested Reply</h3><p style="background:#F0FDF9;padding:12px;border-radius:8px">${escHtml(suggestion)}</p>` : ""}
-            <p style="margin-top:20px"><a href="${process.env.NEXT_PUBLIC_SITE_URL || "https://www.nfpltc.com"}/admin/chats" style="background:#0B7C79;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600">View in Admin →</a></p>
-          </div>`,
-          text: `Chat request from ${visitorName}\nContact: ${contact}\n\n${chatHistory.map(m => `${m.role}: ${m.content}`).join("\n")}`,
-        })
-        emailSent = true
-      } catch (e) {
-        console.error("Escalation email failed:", e)
+    // Handle regular message (admin replied to a bot message in the group)
+    if (update.message) {
+      const msg = update.message
+      // Only process replies to bot messages in the group
+      if (!msg.reply_to_message || msg.from?.is_bot) {
+        return NextResponse.json({ ok: true })
       }
+
+      const replyToMsgId = msg.reply_to_message.message_id
+      const adminText = msg.text || ""
+      const adminName = msg.from?.first_name || "Pharmacy team"
+
+      if (!adminText.trim()) return NextResponse.json({ ok: true })
+
+      // Find the conversation by telegram_msg_id
+      const client = sb()
+      const { data: conv } = await client
+        .from("chat_conversations")
+        .select("id, visitor_name, status")
+        .eq("telegram_msg_id", replyToMsgId)
+        .maybeSingle()
+
+      if (!conv) {
+        // Maybe they replied to a forwarded message — check recent escalated conversations
+        // with the same chat group. Skip if not found.
+        return NextResponse.json({ ok: true })
+      }
+
+      // Save the admin's reply
+      await client.from("chat_messages").insert({
+        conversation_id: conv.id,
+        role: "admin",
+        content: adminText,
+      })
+
+      // Mark as resolved (admin can keep replying if needed — new messages reopen it)
+      await client.from("chat_conversations").update({
+
+
+        updated_at: new Date().toISOString(),
+      }).eq("id", conv.id)
+
+      // Confirm in Telegram
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: msg.chat.id,
+          text: `✅ Reply sent to ${conv.visitor_name || "the customer"} by ${adminName}.`,
+          reply_to_message_id: msg.message_id,
+        }),
+      })
     }
 
-    return NextResponse.json({
-      success: true,
-      telegram: telegramSent,
-      email: emailSent,
-    })
+    return NextResponse.json({ ok: true })
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    console.error("Telegram webhook error:", err)
+    return NextResponse.json({ ok: true }) // always return 200 to Telegram
   }
-}
-
-function escTg(s: string): string {
-  return String(s || "").replace(/[_*\[\]()~`>#+=|{}.!-]/g, "\\$&")
-}
-function escHtml(s: string): string {
-  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 }
