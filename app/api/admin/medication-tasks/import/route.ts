@@ -39,7 +39,13 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
 
-    type RawRow = { patient_name: string; patient_account?: string; medication: string; dose?: string; due_at?: any; instructions?: string; comments?: string; priority?: string }
+    type RawRow = {
+      patient_name: string; patient_account?: string; facility?: string
+      medication: string; dose?: string; form?: string; dose_timing?: string
+      due_at?: any; start_date?: any; delivery_date?: any
+      provider?: string; doctor_contacted?: string; notes?: string
+      instructions?: string; comments?: string; priority?: string
+    }
     let rawRows: RawRow[] = []
 
     if (Array.isArray(body.rows)) {
@@ -85,7 +91,12 @@ export async function POST(req: NextRequest) {
     if (rawRows.length === 0) return NextResponse.json({ error: "No valid rows found" }, { status: 400 })
 
     // Group rows by patient
-    const taskMap = new Map<string, { patient_name: string; patient_account: string | null; medications: any[]; priority: string; comments: string | null }>()
+    const taskMap = new Map<string, {
+      patient_name: string; patient_account: string | null; facility: string | null
+      medications: any[]; priority: string; comments: string | null
+      provider: string | null; doctor_contacted: string | null; notes: string | null
+      start_date: string | null; delivery_date: string | null
+    }>()
     let rowsParsed = 0
 
     for (const row of rawRows) {
@@ -94,21 +105,30 @@ export async function POST(req: NextRequest) {
       if (!patient || !medication) continue
 
       const account = row.patient_account ? String(row.patient_account).trim() || null : null
-      const key = `${patient}||${account || ""}`
+      const facility = row.facility ? String(row.facility).trim() || null : null
+      const key = `${patient}||${account || ""}||${facility || ""}`
 
       if (!taskMap.has(key)) {
         taskMap.set(key, {
           patient_name: patient,
           patient_account: account,
+          facility,
           medications: [],
           priority: String(row.priority || "").trim().toLowerCase() === "urgent" ? "urgent" : "normal",
           comments: row.comments ? String(row.comments).trim() || null : null,
+          provider: row.provider ? String(row.provider).trim() || null : null,
+          doctor_contacted: row.doctor_contacted ? String(row.doctor_contacted).trim() || null : null,
+          notes: row.notes ? String(row.notes).trim() || null : null,
+          start_date: row.start_date ? parseDateOnly(row.start_date) : null,
+          delivery_date: row.delivery_date ? parseDateOnly(row.delivery_date) : null,
         })
       }
 
       taskMap.get(key)!.medications.push({
         name: medication,
         dose: row.dose ? String(row.dose).trim() || null : null,
+        form: row.form ? String(row.form).trim() || null : null,
+        dose_timing: row.dose_timing ? String(row.dose_timing).trim() || null : null,
         due_at: row.due_at ? parseDateFlex(row.due_at) : null,
         instructions: row.instructions ? String(row.instructions).trim() || null : null,
       })
@@ -145,14 +165,20 @@ export async function POST(req: NextRequest) {
       const { data: task, error: err } = await sb.from("medication_tasks").insert({
         patient_name: t.patient_name,
         patient_account: t.patient_account,
+        facility: t.facility,
         medication: medSummary,
         medications: t.medications,
         priority: t.priority,
         comments: t.comments,
+        provider: t.provider,
+        doctor_contacted: t.doctor_contacted,
+        notes: t.notes,
+        start_date: t.start_date,
+        delivery_date: t.delivery_date,
         status: "pending",
         follow_up_count: 0,
         last_notified_at: new Date().toISOString(),
-      }).select("id, patient_name, patient_account, medication, medications, comments, priority").single()
+      }).select("id, patient_name, patient_account, facility, medication, medications, comments, priority, provider, doctor_contacted, notes, start_date, delivery_date").single()
 
       if (err) {
         errors.push(`${t.patient_name}: ${err.message}`)
@@ -261,4 +287,10 @@ function parseDateFlex(raw: any): string | null {
   const d = new Date(s)
   if (!isNaN(d.getTime())) return d.toISOString()
   return null
+}
+
+// Like parseDateFlex but returns YYYY-MM-DD (for `date` typed columns like start_date)
+function parseDateOnly(raw: any): string | null {
+  const iso = parseDateFlex(raw)
+  return iso ? iso.slice(0, 10) : null
 }
