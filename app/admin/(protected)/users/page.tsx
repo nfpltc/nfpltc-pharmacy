@@ -7,6 +7,7 @@ const PAGE_LABELS: Record<string, string> = {
   dashboard: "Dashboard", crm: "CRM / Customers", statements: "Statements",
   "medication-tasks": "Medication Tasks", chats: "Chats", blog: "Blog",
   enrollments: "Enrollments", contacts: "Contacts", "credit-cards": "Credit Cards",
+  vaccines: "Vaccines", jobs: "Jobs", candidates: "Candidates",
   assistant: "AI Assistant", users: "User Management",
 }
 
