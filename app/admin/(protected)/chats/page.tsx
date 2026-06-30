@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { ArrowLeft, MessageCircle, User, Bot, Loader2, Trash2, Clock, CheckCircle2, AlertCircle, Power, Eye, EyeOff } from "lucide-react"
+import { ArrowLeft, MessageCircle, User, Bot, Loader2, Trash2, Clock, CheckCircle2, AlertCircle, Power, Eye, EyeOff, Send } from "lucide-react"
 
 export default function AdminChatsPage() {
   const [convs, setConvs] = useState<any[]>([])
@@ -11,6 +11,8 @@ export default function AdminChatsPage() {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [messages, setMessages] = useState<any[]>([])
   const [loadingMsgs, setLoadingMsgs] = useState(false)
+  const [adminReply, setAdminReply] = useState("")
+  const [sending, setSending] = useState(false)
 
   // Settings
   const [chatEnabled, setChatEnabled] = useState(true)
@@ -60,6 +62,12 @@ export default function AdminChatsPage() {
 
   useEffect(() => { load(); loadSettings() }, [load])
 
+  // Auto-refresh every 10 seconds to catch new escalations
+  useEffect(() => {
+    const timer = setInterval(() => { load() }, 10000)
+    return () => clearInterval(timer)
+  }, [load])
+
   const expand = async (id: string) => {
     if (expanded === id) { setExpanded(null); return }
     setExpanded(id)
@@ -76,6 +84,24 @@ export default function AdminChatsPage() {
     if (!confirm("Delete this conversation?")) return
     await fetch(`/api/admin/chats?id=${id}`, { method: "DELETE" })
     load()
+  }
+
+  const sendAdminReply = async (convId: string) => {
+    if (!adminReply.trim() || sending) return
+    setSending(true)
+    try {
+      const r = await fetch("/api/admin/chats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_id: convId, message: adminReply.trim() }),
+      })
+      if (r.ok) {
+        setAdminReply("")
+        expand(convId) // refresh messages
+        load() // refresh list
+      }
+    } catch {}
+    finally { setSending(false) }
   }
 
   return (
@@ -144,6 +170,20 @@ export default function AdminChatsPage() {
             <span>{stats.total_messages} total messages logged</span>
           </div>
         </div>
+
+        {/* Escalated alert banner */}
+        {counts.escalated > 0 && (
+          <div className="mb-5 flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 animate-pulse">
+            <AlertCircle className="h-5 w-5 flex-shrink-0 text-amber-600" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-800">{counts.escalated} customer{counts.escalated > 1 ? "s" : ""} waiting for a reply</p>
+              <p className="text-xs text-amber-600">Click on an escalated conversation below to see their question.</p>
+            </div>
+            <button onClick={() => setFilter("escalated")} className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700">
+              View Now
+            </button>
+          </div>
+        )}
 
         {/* Filter cards */}
         <div className="mb-5 grid grid-cols-4 gap-3">
@@ -214,6 +254,28 @@ export default function AdminChatsPage() {
                           </div>
                         ))}
                       </div>
+                    )}
+                    {/* Admin reply box */}
+                    {(c.status === "escalated" || c.status === "active") && (
+                      <div className="mt-3 flex gap-2">
+                        <input
+                          value={adminReply}
+                          onChange={e => setAdminReply(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter") sendAdminReply(c.id) }}
+                          placeholder="Type your reply to the customer…"
+                          className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                        <button
+                          onClick={() => sendAdminReply(c.id)}
+                          disabled={sending || !adminReply.trim()}
+                          className="rounded-lg bg-[#0B7C79] px-4 py-2 text-sm font-medium text-white hover:bg-[#0a6b68] disabled:opacity-50"
+                        >
+                          {sending ? "Sending…" : "Reply"}
+                        </button>
+                      </div>
+                    )}
+                    {c.status === "resolved" && (
+                      <p className="mt-2 flex items-center gap-1 text-xs text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" /> Resolved — reply was sent to the customer.</p>
                     )}
                   </div>
                 )}
