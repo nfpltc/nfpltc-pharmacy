@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { ArrowLeft, Pill, Plus, X, Loader2, CheckCircle2, Clock, Ban, Trash2, Mail, Users, Search, Sparkles, Pencil, Download, Upload } from "lucide-react"
+import { ArrowLeft, Pill, Plus, X, Loader2, CheckCircle2, Clock, Ban, Trash2, Mail, Users, Search, Sparkles, Pencil, Download, Upload, FolderClock, CheckSquare, Square } from "lucide-react"
 
 interface Recipient { email: string; name?: string; notified_at?: string; clicked_at?: string }
 interface Task {
@@ -41,6 +41,10 @@ export default function MedicationTasksPage() {
   const [showDefaults, setShowDefaults] = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [showCatalog, setShowCatalog] = useState(false)
+  const [showBatches, setShowBatches] = useState(false)
+  const [bulkMode, setBulkMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkDeleting, setBulkDeleting] = useState(false)
   const [editing, setEditing] = useState<Task | null>(null)
   const [msg, setMsg] = useState("")
 
@@ -103,6 +107,25 @@ export default function MedicationTasksPage() {
     if (r.ok) { setMsg("Task deleted"); load() }
   }
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+  }
+  const selectAllVisible = () => setSelectedIds(new Set(filteredTasks.map(t => t.id)))
+  const clearSelection = () => setSelectedIds(new Set())
+
+  const bulkDelete = async () => {
+    if (selectedIds.size === 0) return
+    if (!confirm(`Permanently delete ${selectedIds.size} selected task(s)? This cannot be undone.`)) return
+    setBulkDeleting(true)
+    try {
+      const r = await fetch(`/api/admin/medication-tasks?ids=${[...selectedIds].join(",")}`, { method: "DELETE" })
+      const d = await r.json()
+      if (r.ok) { setMsg(`Deleted ${d.deleted} task(s)`); setSelectedIds(new Set()); setBulkMode(false); load() }
+      else setMsg(d.error || "Delete failed")
+    } catch { setMsg("Network error") }
+    finally { setBulkDeleting(false) }
+  }
+
   const exportCSV = () => {
     if (tasks.length === 0) { setMsg("No tasks to export"); return }
     const header = "patient_name,patient_account,medication,dose,due_at,instructions,priority,comments,status,created_at,completed_at,completed_by"
@@ -163,6 +186,13 @@ John Smith,10012345,Omeprazole 20mg,1 capsule,2026-07-01 07:00,Before breakfast,
               <button onClick={() => setShowImport(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white hover:bg-white/25">
                 <Upload className="h-4 w-4" /> Import
               </button>
+              <button onClick={() => setShowBatches(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white hover:bg-white/25">
+                <FolderClock className="h-4 w-4" /> Uploads
+              </button>
+              <button onClick={() => { setBulkMode(!bulkMode); setSelectedIds(new Set()) }}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium ${bulkMode ? "bg-white text-[#0B7C79]" : "bg-white/15 text-white hover:bg-white/25"}`}>
+                <CheckSquare className="h-4 w-4" /> {bulkMode ? "Cancel Select" : "Select"}
+              </button>
               <button onClick={() => setShowForm(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-sm font-medium text-[#0B7C79] hover:bg-gray-50">
                 <Plus className="h-4 w-4" /> New Task
               </button>
@@ -209,6 +239,19 @@ John Smith,10012345,Omeprazole 20mg,1 capsule,2026-07-01 07:00,Before breakfast,
           {dateFilter !== "all" && <span className="self-center text-xs text-gray-400">{filteredTasks.length} of {tasks.length} shown</span>}
         </div>
 
+        {/* Bulk action bar */}
+        {bulkMode && (
+          <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-[#0B7C79]/30 bg-emerald-50 px-4 py-2.5">
+            <span className="text-sm font-medium text-[#0B7C79]">{selectedIds.size} selected</span>
+            <button onClick={selectAllVisible} className="text-xs font-medium text-[#0B7C79] hover:underline">Select all ({filteredTasks.length})</button>
+            <button onClick={clearSelection} className="text-xs font-medium text-gray-500 hover:underline">Clear</button>
+            <button onClick={bulkDelete} disabled={selectedIds.size === 0 || bulkDeleting}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50">
+              {bulkDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete Selected
+            </button>
+          </div>
+        )}
+
         {/* Task list */}
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-12 text-gray-500"><Loader2 className="h-5 w-5 animate-spin" /> Loading…</div>
@@ -217,7 +260,7 @@ John Smith,10012345,Omeprazole 20mg,1 capsule,2026-07-01 07:00,Before breakfast,
 
         ) : (
           <div className="space-y-3">
-            {filteredTasks.map(t => <TaskCard key={t.id} t={t} expanded={expandedTask === t.id} onToggleExpand={() => setExpandedTask(expandedTask === t.id ? null : t.id)} onComplete={() => markComplete(t.id)} onCancel={() => cancelTask(t.id)} onEdit={() => setEditing(t)} onDelete={() => deleteTask(t.id)} />)}
+            {filteredTasks.map(t => <TaskCard key={t.id} t={t} expanded={expandedTask === t.id} onToggleExpand={() => setExpandedTask(expandedTask === t.id ? null : t.id)} bulkMode={bulkMode} selected={selectedIds.has(t.id)} onToggleSelect={() => toggleSelect(t.id)} onComplete={() => markComplete(t.id)} onCancel={() => cancelTask(t.id)} onEdit={() => setEditing(t)} onDelete={() => deleteTask(t.id)} />)}
           </div>
         )}
       </section>
@@ -226,19 +269,25 @@ John Smith,10012345,Omeprazole 20mg,1 capsule,2026-07-01 07:00,Before breakfast,
       {editing && <EditTaskModal task={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setMsg("Task updated ✓"); load() }} />}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={(m) => { setShowImport(false); setMsg(m); load() }} onDownloadSample={downloadSample} />}
       {showCatalog && <CatalogModal onClose={() => setShowCatalog(false)} />}
+      {showBatches && <BatchesModal onClose={() => setShowBatches(false)} onDeleted={(m) => { setMsg(m); load() }} />}
       {showDefaults && <DefaultsModal onClose={() => setShowDefaults(false)} />}
     </main>
   )
 }
 
-function TaskCard({ t, expanded, onToggleExpand, onComplete, onCancel, onEdit, onDelete }: { t: Task; expanded: boolean; onToggleExpand: () => void; onComplete: () => void; onCancel: () => void; onEdit: () => void; onDelete: () => void }) {
+function TaskCard({ t, expanded, onToggleExpand, bulkMode, selected, onToggleSelect, onComplete, onCancel, onEdit, onDelete }: { t: Task; expanded: boolean; onToggleExpand: () => void; bulkMode: boolean; selected: boolean; onToggleSelect: () => void; onComplete: () => void; onCancel: () => void; onEdit: () => void; onDelete: () => void }) {
   const clicked = t.recipients?.filter(r => r.clicked_at).length || 0
   const hasExtra = Boolean(t.facility || t.provider || t.doctor_contacted || t.notes || t.start_date || t.delivery_date || (t.medications || []).some(m => m.form || m.dose_timing))
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
+    <div className={`rounded-xl border bg-white p-4 ${selected ? "border-[#0B7C79] ring-1 ring-[#0B7C79] bg-emerald-50/30" : "border-gray-200"}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex-1 cursor-pointer" onClick={onToggleExpand}>
+        {bulkMode && (
+          <button onClick={onToggleSelect} className="mt-1 flex-shrink-0 text-[#0B7C79]">
+            {selected ? <CheckSquare className="h-5 w-5" /> : <Square className="h-5 w-5 text-gray-300" />}
+          </button>
+        )}
+        <div className="flex-1 cursor-pointer" onClick={bulkMode ? onToggleSelect : onToggleExpand}>
           <div className="flex items-center gap-2">
             {t.priority === "urgent" && <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">Urgent</span>}
             <StatusBadge status={t.status} />
@@ -295,24 +344,26 @@ function TaskCard({ t, expanded, onToggleExpand, onComplete, onCancel, onEdit, o
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {t.status === "pending" && (
-            <>
-              <button onClick={onComplete} className="inline-flex items-center gap-1 rounded-lg bg-[#0B7C79] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0a6b68]">
-                <CheckCircle2 className="h-3.5 w-3.5" /> Mark Done
-              </button>
-              <button onClick={onCancel} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">
-                <Ban className="h-3.5 w-3.5" /> Cancel
-              </button>
-            </>
-          )}
-          <button onClick={onEdit} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50" title="Edit">
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
-          <button onClick={onDelete} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-red-500 hover:bg-red-50" title="Delete">
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        {!bulkMode && (
+          <div className="flex flex-wrap gap-2">
+            {t.status === "pending" && (
+              <>
+                <button onClick={onComplete} className="inline-flex items-center gap-1 rounded-lg bg-[#0B7C79] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#0a6b68]">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Mark Done
+                </button>
+                <button onClick={onCancel} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">
+                  <Ban className="h-3.5 w-3.5" /> Cancel
+                </button>
+              </>
+            )}
+            <button onClick={onEdit} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-600 hover:bg-gray-50" title="Edit">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={onDelete} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-red-500 hover:bg-red-50" title="Delete">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -876,7 +927,7 @@ function ImportModal({ onClose, onDone, onDownloadSample }: { onClose: () => voi
 
       const r = await fetch("/api/admin/medication-tasks/import", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: normalized }),
+        body: JSON.stringify({ rows: normalized, filename: file?.name || null }),
       })
       const d = await r.json()
       if (!r.ok) { setError(d.error || "Import failed"); return }
@@ -1033,6 +1084,59 @@ function DefaultsModal({ onClose }: { onClose: () => void }) {
 }
 
 const inputCls = "rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+
+function BatchesModal({ onClose, onDeleted }: { onClose: () => void; onDeleted: (msg: string) => void }) {
+  const [batches, setBatches] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const load = async () => {
+    setLoading(true)
+    try { const r = await fetch("/api/admin/medication-tasks/batches"); const d = await r.json(); if (r.ok) setBatches(d.batches || []) }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [])
+
+  const deleteBatch = async (b: any) => {
+    if (!confirm(`Delete this entire upload "${b.filename || "Unnamed upload"}"?\n\nThis will permanently delete all ${b.live_count} task(s) created from it. This cannot be undone.`)) return
+    setDeletingId(b.id)
+    try {
+      const r = await fetch(`/api/admin/medication-tasks/batches?id=${b.id}`, { method: "DELETE" })
+      const d = await r.json()
+      if (r.ok) { onDeleted(`Deleted upload "${b.filename || "Unnamed"}" — ${d.deleted} task(s) removed`); load() }
+    } finally { setDeletingId(null) }
+  }
+
+  return (
+    <Modal onClose={onClose} title="Import History">
+      <p className="mb-3 text-sm text-gray-500">Each file you've uploaded is tracked here. Delete an entire upload to remove all tasks it created at once.</p>
+      {loading ? (
+        <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>
+      ) : batches.length === 0 ? (
+        <p className="py-6 text-center text-sm italic text-gray-400">No uploads yet.</p>
+      ) : (
+        <div className="max-h-80 space-y-2 overflow-y-auto">
+          {batches.map(b => (
+            <div key={b.id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+              <div>
+                <p className="text-sm font-medium text-gray-800">{b.filename || "Unnamed upload"}</p>
+                <p className="text-xs text-gray-500">
+                  {b.live_count} task{b.live_count !== 1 ? "s" : ""} remaining
+                  {b.live_count !== b.task_count ? ` (${b.task_count} originally)` : ""}
+                  {" · "}{new Date(b.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+                </p>
+              </div>
+              <button onClick={() => deleteBatch(b)} disabled={deletingId === b.id || b.live_count === 0}
+                className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40">
+                {deletingId === b.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Delete All
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  )
+}
 
 function CatalogModal({ onClose }: { onClose: () => void }) {
   const [list, setList] = useState<any[]>([])
