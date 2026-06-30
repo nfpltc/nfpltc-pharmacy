@@ -280,15 +280,17 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
-    const id = searchParams.get("id")?.trim()
-    if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
+    const idParam = searchParams.get("id")?.trim()
+    const idsParam = searchParams.get("ids")?.trim() // comma-separated for bulk delete
+    if (!idParam && !idsParam) return NextResponse.json({ error: "id or ids is required" }, { status: 400 })
+
+    const ids = idsParam ? idsParam.split(",").map(s => s.trim()).filter(Boolean) : [idParam!]
 
     const sb = admin()
-    // Recipients cascade-delete via foreign key, but let's be explicit
-    await sb.from("medication_task_recipients").delete().eq("task_id", id)
-    const { error } = await sb.from("medication_tasks").delete().eq("id", id)
+    await sb.from("medication_task_recipients").delete().in("task_id", ids)
+    const { error } = await sb.from("medication_tasks").delete().in("id", ids)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, deleted: ids.length })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Server error" }, { status: 500 })
   }
