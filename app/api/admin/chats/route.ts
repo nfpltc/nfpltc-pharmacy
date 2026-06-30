@@ -57,28 +57,38 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/admin/chats — admin sends a reply from the dashboard
-// Body: { conversation_id, message }
+// POST /api/admin/chats — admin sends a reply or resolves
+// Body: { conversation_id, message } or { conversation_id, action: "resolve" }
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
     const convId = String(body.conversation_id || "").trim()
-    const message = String(body.message || "").trim()
-    if (!convId || !message) return NextResponse.json({ error: "conversation_id and message required" }, { status: 400 })
+    if (!convId) return NextResponse.json({ error: "conversation_id required" }, { status: 400 })
 
     const sbc = admin()
 
-    // Save admin reply
+    // Resolve action
+    if (body.action === "resolve") {
+      await sbc.from("chat_conversations").update({
+        status: "resolved",
+        resolved_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", convId)
+      return NextResponse.json({ success: true, status: "resolved" })
+    }
+
+    // Send reply
+    const message = String(body.message || "").trim()
+    if (!message) return NextResponse.json({ error: "message required" }, { status: 400 })
+
     await sbc.from("chat_messages").insert({
       conversation_id: convId,
       role: "admin",
       content: message,
     })
 
-    // Mark as resolved
+    // Keep conversation active (don't resolve — admin can keep chatting)
     await sbc.from("chat_conversations").update({
-      status: "resolved",
-      resolved_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }).eq("id", convId)
 
@@ -87,6 +97,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
+
+// GET /api/admin/chats/suggest?conversation_id=X — AI-generated reply suggestion
+// (called separately so it doesn't block the chat view)
 
 // DELETE /api/admin/chats?id=XXX
 export async function DELETE(req: NextRequest) {
