@@ -160,6 +160,14 @@ export async function POST(req: NextRequest) {
     let emailed = 0
     const errors: string[] = []
 
+    // Create an import batch record so admin can bulk-delete this upload later
+    const filename = body.filename ? String(body.filename).trim().slice(0, 200) : null
+    const { data: batch } = await sb.from("medication_import_batches").insert({
+      filename,
+      task_count: 0,
+    }).select("id").single()
+    const batchId = batch?.id || null
+
     for (const t of taskMap.values()) {
       const medSummary = t.medications.map(m => m.name).join(", ")
       const { data: task, error: err } = await sb.from("medication_tasks").insert({
@@ -175,6 +183,7 @@ export async function POST(req: NextRequest) {
         notes: t.notes,
         start_date: t.start_date,
         delivery_date: t.delivery_date,
+        import_batch_id: batchId,
         status: "pending",
         follow_up_count: 0,
         last_notified_at: new Date().toISOString(),
@@ -244,6 +253,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Finalize batch record with actual count (or remove if nothing was created)
+    if (batchId) {
+      if (created > 0) {
+        await sb.from("medication_import_batches").update({ task_count: created }).eq("id", batchId)
+      } else {
+        await sb.from("medication_import_batches").delete().eq("id", batchId)
+      }
+    }
+
     return NextResponse.json({
       success: true,
       rows_parsed: rowsParsed,
@@ -251,6 +269,7 @@ export async function POST(req: NextRequest) {
       emails_sent: emailed,
       default_recipients: defaultRecipients.length,
       errors: errors.slice(0, 20),
+      batch_id: created > 0 ? batchId : null,
     })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Server error" }, { status: 500 })
