@@ -661,20 +661,124 @@ function ImportModal({ onClose, onDone, onDownloadSample }: { onClose: () => voi
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState("")
+  const [parsing, setParsing] = useState(false)
+  const [preview, setPreview] = useState<any[] | null>(null)
+  const [headers, setHeaders] = useState<string[]>([])
+  const [mapping, setMapping] = useState<Record<string, string>>({})
+  const [skipCompleted, setSkipCompleted] = useState(true)
+
+  // Field options the system understands
+  const FIELDS = [
+    { key: "patient_name", label: "Patient Name *", required: true },
+    { key: "patient_account", label: "Patient Account / Facility" },
+    { key: "medication", label: "Medication Name *", required: true },
+    { key: "dose", label: "Dose / Strength" },
+    { key: "due_at", label: "Due Date/Time" },
+    { key: "instructions", label: "Instructions" },
+    { key: "comments", label: "Comments / Provider" },
+    { key: "priority", label: "Priority" },
+    { key: "completed", label: "Completed (skip if checked)" },
+  ]
+
+  // Auto-guess mapping based on common header names (handles your C2 tracking format)
+  const guessMapping = (hdrs: string[]): Record<string, string> => {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "")
+    const guesses: Record<string, string> = {}
+    const tryMatch = (field: string, candidates: string[]) => {
+      for (const h of hdrs) {
+        const nh = norm(h)
+        if (candidates.some(c => nh === norm(c) || nh.includes(norm(c)))) { guesses[field] = h; return }
+      }
+    }
+    tryMatch("patient_name", ["resident name", "resident", "patient name", "patient"])
+    tryMatch("patient_account", ["facility", "patient account", "account"])
+    tryMatch("medication", ["drug name", "drug", "medication name", "medication"])
+    tryMatch("dose", ["strength", "dose"])
+    tryMatch("due_at", ["time of next dose", "next dose", "due at", "due date", "medication delivery date"])
+    tryMatch("instructions", ["notes", "instructions", "form"])
+    tryMatch("comments", ["provider", "doctor contacted for prescripion", "doctor contacted", "comments"])
+    tryMatch("priority", ["priority"])
+    tryMatch("completed", ["completed", "status"])
+    return guesses
+  }
+
+  const handleFile = async (f: File | null) => {
+    setFile(f); setError(""); setPreview(null)
+    if (!f) return
+    setParsing(true)
+    try {
+      const isXlsx = /\.xlsx?$/i.test(f.name)
+      let rows: any[] = []
+      let hdrs: string[] = []
+
+      if (isXlsx) {
+        const XLSX = await import("xlsx")
+        const buf = await f.arrayBuffer()
+        const wb = XLSX.read(buf, { type: "array", cellDates: true })
+        const sheet = wb.Sheets[wb.SheetNames[0]]
+        const json: any[] = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false })
+        if (json.length === 0) { setError("No rows found in the spreadsheet"); setParsing(false); return }
+        hdrs = Object.keys(json[0])
+        rows = json
+      } else {
+        const text = await f.text()
+        const lines = text.split(/\r?\n/).filter(l => l.trim())
+        if (lines.length < 2) { setError("CSV needs a header row and at least one data row"); setParsing(false); return }
+        hdrs = lines[0].split(",").map(h => h.trim())
+        rows = lines.slice(1).map(line => {
+          const cols = line.split(",")
+          const obj: any = {}
+          hdrs.forEach((h, i) => { obj[h] = (cols[i] || "").trim() })
+          return obj
+        })
+      }
+
+      setHeaders(hdrs)
+      setMapping(guessMapping(hdrs))
+      setPreview(rows)
+    } catch (e: any) {
+      setError("Could not read file: " + e.message)
+    } finally {
+      setParsing(false)
+    }
+  }
 
   const handleUpload = async () => {
-    if (!file) { setError("Select a CSV file first"); return }
+    if (!preview || preview.length === 0) { setError("No data to import"); return }
+    if (!mapping.patient_name || !mapping.medication) { setError("Map at least Patient Name and Medication Name"); return }
     setUploading(true); setError("")
     try {
-      const text = await file.text()
+      // Build normalized rows using the mapping, then send as JSON (not CSV text)
+      // so we can handle Excel dates and arbitrary column names properly.
+      const completedField = mapping.completed
+      const normalized = preview
+        .filter(row => {
+          if (!skipCompleted || !completedField) return true
+          const val = String(row[completedField] || "").trim().toLowerCase()
+          return !(val === "true" || val === "yes" || val === "completed" || val === "1" || val === "x")
+        })
+        .map(row => ({
+          patient_name: String(row[mapping.patient_name] || "").trim(),
+          patient_account: mapping.patient_account ? String(row[mapping.patient_account] || "").trim() : "",
+          medication: String(row[mapping.medication] || "").trim(),
+          dose: mapping.dose ? String(row[mapping.dose] || "").trim() : "",
+          due_at: mapping.due_at ? row[mapping.due_at] : "",
+          instructions: mapping.instructions ? String(row[mapping.instructions] || "").trim() : "",
+          comments: mapping.comments ? String(row[mapping.comments] || "").trim() : "",
+          priority: mapping.priority ? String(row[mapping.priority] || "").trim() : "",
+        }))
+        .filter(r => r.patient_name && r.medication)
+
+      if (normalized.length === 0) { setError("No valid rows after filtering — check your column mapping"); setUploading(false); return }
+
       const r = await fetch("/api/admin/medication-tasks/import", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ csv: text }),
+        body: JSON.stringify({ rows: normalized }),
       })
       const d = await r.json()
       if (!r.ok) { setError(d.error || "Import failed"); return }
       const errs = d.errors?.length ? ` (${d.errors.length} errors)` : ""
-      onDone(`Imported ${d.tasks_created} tasks from ${d.rows_parsed} rows${errs}`)
+      onDone(`Imported ${d.tasks_created} tasks from ${d.rows_parsed} rows, ${d.emails_sent || 0} emails sent${errs}`)
     } catch {
       setError("Network error")
     } finally {
@@ -686,44 +790,82 @@ function ImportModal({ onClose, onDone, onDownloadSample }: { onClose: () => voi
     <Modal onClose={onClose} title="Import Medication Tasks">
       <div className="space-y-4">
         <p className="text-sm text-gray-600">
-          Upload a CSV file to bulk-create medication tasks. Rows with the same patient name and account are grouped into one task with multiple medications.
+          Upload a CSV or Excel (.xlsx) file. Works with your C2 resident tracking sheet — columns are matched automatically, but you can adjust the mapping below.
         </p>
 
-        <div className="rounded-lg bg-gray-50 p-3">
-          <p className="mb-2 text-xs font-semibold text-gray-700">Required columns</p>
-          <div className="flex flex-wrap gap-1.5">
-            {["patient_name", "medication"].map(c => (
-              <span key={c} className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">{c}</span>
-            ))}
-          </div>
-          <p className="mt-2 text-xs font-semibold text-gray-700">Optional columns</p>
-          <div className="flex flex-wrap gap-1.5">
-            {["patient_account", "dose", "due_at", "instructions", "priority", "comments"].map(c => (
-              <span key={c} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">{c}</span>
-            ))}
-          </div>
-        </div>
-
         <button onClick={onDownloadSample} className="inline-flex items-center gap-1.5 text-sm font-medium text-[#0B7C79] hover:underline">
-          <Download className="h-4 w-4" /> Download sample template
+          <Download className="h-4 w-4" /> Download CSV sample template
         </button>
 
         <div>
           <input
             type="file"
-            accept=".csv,text/csv"
-            onChange={e => setFile(e.target.files?.[0] || null)}
+            accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            onChange={e => handleFile(e.target.files?.[0] || null)}
             className="block w-full text-sm text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-emerald-700 hover:file:bg-emerald-100"
           />
         </div>
+
+        {parsing && <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Reading file…</div>}
+
+        {preview && preview.length > 0 && (
+          <div className="space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <p className="text-xs font-semibold text-gray-700">Found {preview.length} rows — map your columns:</p>
+            <div className="grid grid-cols-2 gap-2">
+              {FIELDS.map(f => (
+                <div key={f.key}>
+                  <label className="text-[11px] text-gray-500">{f.label}</label>
+                  <select
+                    value={mapping[f.key] || ""}
+                    onChange={e => setMapping(prev => ({ ...prev, [f.key]: e.target.value }))}
+                    className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs"
+                  >
+                    <option value="">— Not mapped —</option>
+                    {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            {mapping.completed && (
+              <label className="flex items-center gap-2 text-xs text-gray-700">
+                <input type="checkbox" checked={skipCompleted} onChange={e => setSkipCompleted(e.target.checked)} />
+                Skip rows already marked completed
+              </label>
+            )}
+
+            {/* Preview of first 3 mapped rows */}
+            <div className="mt-2">
+              <p className="mb-1 text-[11px] font-medium text-gray-500">Preview (first 3 rows)</p>
+              <div className="max-h-32 overflow-y-auto rounded border border-gray-200 bg-white">
+                <table className="w-full text-[11px]">
+                  <thead className="bg-gray-100"><tr>
+                    <th className="px-2 py-1 text-left">Patient</th>
+                    <th className="px-2 py-1 text-left">Medication</th>
+                    <th className="px-2 py-1 text-left">Dose</th>
+                  </tr></thead>
+                  <tbody>
+                    {preview.slice(0, 3).map((row, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="px-2 py-1">{mapping.patient_name ? row[mapping.patient_name] : "—"}</td>
+                        <td className="px-2 py-1">{mapping.medication ? row[mapping.medication] : "—"}</td>
+                        <td className="px-2 py-1">{mapping.dose ? row[mapping.dose] : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm">Cancel</button>
-          <button onClick={handleUpload} disabled={uploading || !file}
+          <button onClick={handleUpload} disabled={uploading || !preview}
             className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B7C79] px-4 py-2 text-sm font-medium text-white hover:bg-[#0a6b68] disabled:opacity-60">
-            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Import
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Import {preview ? `${preview.length} rows` : ""}
           </button>
         </div>
       </div>
