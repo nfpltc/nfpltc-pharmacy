@@ -21,6 +21,7 @@ export default function ChatWidget() {
   const [escalatedAt, setEscalatedAt] = useState<number | null>(null)
   const [waitTimeout, setWaitTimeout] = useState(false)
   const [pollTimer, setPollTimer] = useState<any>(null)
+  const [showPopup, setShowPopup] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Check if chat is enabled by admin
@@ -37,6 +38,18 @@ export default function ChatWidget() {
       }
     })()
   }, [])
+
+  // Show popup greeting after 3 seconds (once per session)
+  useEffect(() => {
+    if (open || !chatVisible) return
+    const seen = sessionStorage.getItem("nfpltc_popup_seen")
+    if (seen) return
+    const timer = setTimeout(() => {
+      setShowPopup(true)
+      sessionStorage.setItem("nfpltc_popup_seen", "1")
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [open, chatVisible])
 
   // Restore conversation from localStorage
   useEffect(() => {
@@ -169,14 +182,61 @@ export default function ChatWidget() {
 
   if (!open) {
     return (
-      <button
-        onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full shadow-lg hover:scale-105 transition-transform"
-        style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}
-        aria-label="Open chat"
-      >
-        <MessageCircle className="h-6 w-6 text-white" />
-      </button>
+      <div className="fixed bottom-6 right-6 z-50">
+        {/* Popup greeting */}
+        {showPopup && (
+          <div className="absolute bottom-16 right-0 w-72 animate-fadeIn rounded-2xl bg-white p-4 shadow-2xl border border-gray-100" style={{ animation: "fadeSlideUp 0.4s ease-out" }}>
+            <button onClick={() => setShowPopup(false)} className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 text-sm">✕</button>
+            <div className="flex items-start gap-2.5">
+              <span className="text-2xl" style={{ animation: "pillWiggle 1s ease-in-out infinite" }}>💊</span>
+              <div>
+                <p className="text-sm font-semibold text-gray-800">Need pharmacy help?</p>
+                <p className="mt-0.5 text-xs text-gray-500">Ask about prescriptions, deliveries, vaccinations, and more!</p>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {["Refill help", "Deliveries", "Vaccinations"].map(q => (
+                <button key={q} onClick={() => { setShowPopup(false); setOpen(true); setTimeout(() => sendMessage(`Tell me about ${q.toLowerCase()}`), 300) }}
+                  className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors">
+                  {q}
+                </button>
+              ))}
+            </div>
+            {/* Triangle pointer */}
+            <div className="absolute -bottom-2 right-6 h-4 w-4 rotate-45 border-b border-r border-gray-100 bg-white"></div>
+          </div>
+        )}
+
+        {/* Dancing pill button */}
+        <button
+          onClick={() => { setShowPopup(false); setOpen(true) }}
+          className="flex h-14 w-14 items-center justify-center rounded-full shadow-lg hover:scale-110 transition-transform"
+          style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}
+          aria-label="Open chat"
+        >
+          <span className="text-2xl" style={{ animation: "pillDance 2s ease-in-out infinite", display: "inline-block" }}>💊</span>
+        </button>
+
+        {/* CSS animations */}
+        <style>{`
+          @keyframes pillDance {
+            0%, 100% { transform: rotate(0deg) scale(1); }
+            15% { transform: rotate(15deg) scale(1.1); }
+            30% { transform: rotate(-10deg) scale(1.05); }
+            45% { transform: rotate(8deg) scale(1.1); }
+            60% { transform: rotate(-5deg) scale(1); }
+          }
+          @keyframes pillWiggle {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(12deg); }
+            75% { transform: rotate(-12deg); }
+          }
+          @keyframes fadeSlideUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+        `}</style>
+      </div>
     )
   }
 
