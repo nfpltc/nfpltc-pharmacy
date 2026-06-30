@@ -23,6 +23,7 @@ const sidebarLinks = [
   { href: "/admin/customers", label: "Customers", icon: UsersRound },
   { href: "/admin/statements", label: "Statements", icon: FileStack },
   { href: "/admin/medication-tasks", label: "Medication Tasks", icon: Pill },
+  { href: "/admin/users", label: "User Management", icon: Users },
 ]
 
 export const dynamic = "force-dynamic"
