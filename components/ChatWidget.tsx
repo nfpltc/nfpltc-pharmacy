@@ -87,7 +87,9 @@ export default function ChatWidget() {
   }, [status, escalatedAt])
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
   }, [messages, loading])
 
   const saveConv = (id: string, st: string) => {
@@ -182,35 +184,23 @@ export default function ChatWidget() {
 
   if (!open) {
     return (
-      <div className="fixed bottom-6 right-6 z-50">
-        {/* Popup greeting */}
-        {showPopup && (
-          <div className="absolute bottom-16 right-0 w-72 animate-fadeIn rounded-2xl bg-white p-4 shadow-2xl border border-gray-100" style={{ animation: "fadeSlideUp 0.4s ease-out" }}>
-            <button onClick={() => setShowPopup(false)} className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 text-sm">✕</button>
-            <div className="flex items-start gap-2.5">
-              <span className="text-2xl" style={{ animation: "pillWiggle 1s ease-in-out infinite" }}>💊</span>
-              <div>
-                <p className="text-sm font-semibold text-gray-800">Need pharmacy help?</p>
-                <p className="mt-0.5 text-xs text-gray-500">Ask about prescriptions, deliveries, vaccinations, and more!</p>
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {["Refill help", "Deliveries", "Vaccinations"].map(q => (
-                <button key={q} onClick={() => { setShowPopup(false); setOpen(true); setTimeout(() => sendMessage(`Tell me about ${q.toLowerCase()}`), 300) }}
-                  className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors">
-                  {q}
-                </button>
-              ))}
-            </div>
-            {/* Triangle pointer */}
-            <div className="absolute -bottom-2 right-6 h-4 w-4 rotate-45 border-b border-r border-gray-100 bg-white"></div>
-          </div>
-        )}
+      <div className="fixed bottom-6 right-6 z-50 flex items-end gap-3">
+        {/* Persistent help text — always visible */}
+        <button
+          onClick={() => { setShowPopup(false); setOpen(true) }}
+          className="mb-1 rounded-2xl bg-white px-4 py-2.5 shadow-lg border border-gray-100 text-left hover:shadow-xl transition-shadow cursor-pointer"
+          style={{ animation: "fadeSlideUp 0.5s ease-out" }}
+        >
+          <p className="text-sm font-semibold text-gray-800">
+            <span style={{ display: "inline-block", animation: "wave 1.5s ease-in-out infinite" }}>👋</span> Hi! Need any help?
+          </p>
+          <p className="mt-0.5 text-xs text-gray-500">Chat with us about prescriptions, deliveries & more</p>
+        </button>
 
         {/* Dancing pill button */}
         <button
           onClick={() => { setShowPopup(false); setOpen(true) }}
-          className="flex h-14 w-14 items-center justify-center rounded-full shadow-lg hover:scale-110 transition-transform"
+          className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full shadow-lg hover:scale-110 transition-transform"
           style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}
           aria-label="Open chat"
         >
@@ -226,10 +216,12 @@ export default function ChatWidget() {
             45% { transform: rotate(8deg) scale(1.1); }
             60% { transform: rotate(-5deg) scale(1); }
           }
-          @keyframes pillWiggle {
+          @keyframes wave {
             0%, 100% { transform: rotate(0deg); }
-            25% { transform: rotate(12deg); }
-            75% { transform: rotate(-12deg); }
+            20% { transform: rotate(20deg); }
+            40% { transform: rotate(-10deg); }
+            60% { transform: rotate(15deg); }
+            80% { transform: rotate(-5deg); }
           }
           @keyframes fadeSlideUp {
             from { opacity: 0; transform: translateY(10px); }
@@ -241,7 +233,7 @@ export default function ChatWidget() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex w-[360px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" style={{ height: "min(520px, calc(100vh - 48px))" }}>
+    <div className="fixed bottom-6 right-6 z-50 flex w-[370px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl border border-gray-200" style={{ height: "min(540px, calc(100vh - 48px))", overscrollBehavior: "contain" }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3" style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}>
         <div>
@@ -259,7 +251,7 @@ export default function ChatWidget() {
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3" style={{ overscrollBehavior: "contain" }}>
         {!chatEnabled ? (
           <div className="flex h-full flex-col items-center justify-center py-8 text-center">
             <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
