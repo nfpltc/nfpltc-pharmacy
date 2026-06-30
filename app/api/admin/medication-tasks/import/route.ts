@@ -30,41 +30,70 @@ function escapeHtml(s: string): string {
 }
 
 // POST /api/admin/medication-tasks/import
-// Accepts CSV text. Creates tasks + sends notification emails to default recipients.
+// Accepts EITHER:
+//   { csv: "..." }              — legacy raw CSV text (patient_name,medication,... headers)
+//   { rows: [{ patient_name, patient_account, medication, dose, due_at, instructions, comments, priority }] }
+//   — structured rows, already mapped client-side (used by the XLSX/CSV uploader with column mapping)
+// Creates tasks + sends notification emails to default recipients.
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
-    const csv = String(body.csv || "").trim()
-    if (!csv) return NextResponse.json({ error: "No CSV data provided" }, { status: 400 })
 
-    const lines = csv.split(/\r?\n/).filter(l => l.trim())
-    if (lines.length < 2) return NextResponse.json({ error: "CSV must have a header row and at least one data row" }, { status: 400 })
+    type RawRow = { patient_name: string; patient_account?: string; medication: string; dose?: string; due_at?: any; instructions?: string; comments?: string; priority?: string }
+    let rawRows: RawRow[] = []
 
-    const header = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, ""))
-    const nameIdx = header.indexOf("patient_name")
-    const acctIdx = header.indexOf("patient_account")
-    const medIdx = header.indexOf("medication")
-    const doseIdx = header.indexOf("dose")
-    const dueIdx = header.indexOf("due_at")
-    const instrIdx = header.indexOf("instructions")
-    const prioIdx = header.indexOf("priority")
-    const commIdx = header.indexOf("comments")
+    if (Array.isArray(body.rows)) {
+      // New structured path (from the file-upload UI with column mapping)
+      rawRows = body.rows
+    } else {
+      // Legacy CSV text path
+      const csv = String(body.csv || "").trim()
+      if (!csv) return NextResponse.json({ error: "No data provided" }, { status: 400 })
 
-    if (nameIdx < 0 || medIdx < 0) {
-      return NextResponse.json({ error: "CSV must have 'patient_name' and 'medication' columns" }, { status: 400 })
+      const lines = csv.split(/\r?\n/).filter(l => l.trim())
+      if (lines.length < 2) return NextResponse.json({ error: "CSV must have a header row and at least one data row" }, { status: 400 })
+
+      const header = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, ""))
+      const nameIdx = header.indexOf("patient_name")
+      const acctIdx = header.indexOf("patient_account")
+      const medIdx = header.indexOf("medication")
+      const doseIdx = header.indexOf("dose")
+      const dueIdx = header.indexOf("due_at")
+      const instrIdx = header.indexOf("instructions")
+      const prioIdx = header.indexOf("priority")
+      const commIdx = header.indexOf("comments")
+
+      if (nameIdx < 0 || medIdx < 0) {
+        return NextResponse.json({ error: "CSV must have 'patient_name' and 'medication' columns" }, { status: 400 })
+      }
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = parseCSVLine(lines[i])
+        rawRows.push({
+          patient_name: cols[nameIdx] || "",
+          patient_account: acctIdx >= 0 ? cols[acctIdx] : "",
+          medication: cols[medIdx] || "",
+          dose: doseIdx >= 0 ? cols[doseIdx] : "",
+          due_at: dueIdx >= 0 ? cols[dueIdx] : "",
+          instructions: instrIdx >= 0 ? cols[instrIdx] : "",
+          comments: commIdx >= 0 ? cols[commIdx] : "",
+          priority: prioIdx >= 0 ? cols[prioIdx] : "",
+        })
+      }
     }
+
+    if (rawRows.length === 0) return NextResponse.json({ error: "No valid rows found" }, { status: 400 })
 
     // Group rows by patient
     const taskMap = new Map<string, { patient_name: string; patient_account: string | null; medications: any[]; priority: string; comments: string | null }>()
     let rowsParsed = 0
 
-    for (let i = 1; i < lines.length; i++) {
-      const cols = parseCSVLine(lines[i])
-      const patient = (cols[nameIdx] || "").trim()
-      const medication = (cols[medIdx] || "").trim()
+    for (const row of rawRows) {
+      const patient = String(row.patient_name || "").trim()
+      const medication = String(row.medication || "").trim()
       if (!patient || !medication) continue
 
-      const account = acctIdx >= 0 ? (cols[acctIdx] || "").trim() || null : null
+      const account = row.patient_account ? String(row.patient_account).trim() || null : null
       const key = `${patient}||${account || ""}`
 
       if (!taskMap.has(key)) {
@@ -72,16 +101,16 @@ export async function POST(req: NextRequest) {
           patient_name: patient,
           patient_account: account,
           medications: [],
-          priority: prioIdx >= 0 && (cols[prioIdx] || "").trim().toLowerCase() === "urgent" ? "urgent" : "normal",
-          comments: commIdx >= 0 ? (cols[commIdx] || "").trim() || null : null,
+          priority: String(row.priority || "").trim().toLowerCase() === "urgent" ? "urgent" : "normal",
+          comments: row.comments ? String(row.comments).trim() || null : null,
         })
       }
 
       taskMap.get(key)!.medications.push({
         name: medication,
-        dose: doseIdx >= 0 ? (cols[doseIdx] || "").trim() || null : null,
-        due_at: dueIdx >= 0 ? parseDateFlex(cols[dueIdx]) : null,
-        instructions: instrIdx >= 0 ? (cols[instrIdx] || "").trim() || null : null,
+        dose: row.dose ? String(row.dose).trim() || null : null,
+        due_at: row.due_at ? parseDateFlex(row.due_at) : null,
+        instructions: row.instructions ? String(row.instructions).trim() || null : null,
       })
       rowsParsed++
     }
@@ -222,10 +251,13 @@ function parseCSVLine(line: string): string[] {
   return result
 }
 
-function parseDateFlex(raw: string | undefined): string | null {
+function parseDateFlex(raw: any): string | null {
   if (!raw) return null
-  const s = raw.trim()
-  if (!s) return null
+  if (raw instanceof Date) return isNaN(raw.getTime()) ? null : raw.toISOString()
+  const s = String(raw).trim()
+  if (!s || s === "-") return null
+  // Skip non-date free-text values common in tracking sheets (PRN CARD, DISCONTINUED, etc.)
+  if (/^(prn|discontinued|n\/?a|none|tbd|pending)/i.test(s)) return null
   const d = new Date(s)
   if (!isNaN(d.getTime())) return d.toISOString()
   return null
