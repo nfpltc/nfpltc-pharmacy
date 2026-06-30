@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-function sb() {
+function admin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -12,140 +12,92 @@ function sb() {
   )
 }
 
-// POST /api/chat/telegram-webhook
-// Receives updates from Telegram: callback_query (button taps) and messages (admin replies).
+// GET /api/admin/chats?status=all|active|escalated|resolved
+export async function GET(req: NextRequest) {
+  try {
+    const sb = admin()
+    const status = new URL(req.url).searchParams.get("status") || "all"
+
+    let q = sb.from("chat_conversations").select("*").order("updated_at", { ascending: false }).limit(100)
+    if (status !== "all") q = q.eq("status", status)
+    const { data: convs, error } = await q
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // Attach last message + message count for each conversation
+    const ids = (convs || []).map(c => c.id)
+    let allMessages: any[] = []
+    if (ids.length > 0) {
+      const { data } = await sb
+        .from("chat_messages")
+        .select("conversation_id, role, content, created_at")
+        .in("conversation_id", ids)
+        .order("created_at", { ascending: false })
+      allMessages = data || []
+    }
+
+    const enriched = (convs || []).map(c => {
+      const msgs = allMessages.filter(m => m.conversation_id === c.id)
+      const lastUser = msgs.find(m => m.role === "user")
+      return {
+        ...c,
+        message_count: msgs.length,
+        last_message: lastUser?.content?.slice(0, 100) || "",
+      }
+    })
+
+    // Counts
+    const counts = { all: (convs || []).length, active: 0, escalated: 0, resolved: 0 }
+    for (const c of (convs || [])) {
+      if (c.status in counts) (counts as any)[c.status]++
+    }
+
+    return NextResponse.json({ conversations: enriched, counts })
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 })
+  }
+}
+
+// POST /api/admin/chats — admin sends a reply from the dashboard
+// Body: { conversation_id, message }
 export async function POST(req: NextRequest) {
   try {
-    const update = await req.json().catch(() => ({}))
-    const token = process.env.TELEGRAM_BOT_TOKEN
-    if (!token) return NextResponse.json({ ok: true })
+    const body = await req.json().catch(() => ({}))
+    const convId = String(body.conversation_id || "").trim()
+    const message = String(body.message || "").trim()
+    if (!convId || !message) return NextResponse.json({ error: "conversation_id and message required" }, { status: 400 })
 
-    // Handle callback query (admin tapped "Send Suggested Reply" or "I'll write my own")
-    if (update.callback_query) {
-      const cb = update.callback_query
-      const data = cb.data || ""
-      const callbackId = cb.id
+    const sbc = admin()
 
-      // Acknowledge the button tap
-      await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ callback_query_id: callbackId }),
-      })
+    // Save admin reply
+    await sbc.from("chat_messages").insert({
+      conversation_id: convId,
+      role: "admin",
+      content: message,
+    })
 
-      if (data.startsWith("send_")) {
-        // Admin chose to send the AI suggestion
-        const convId = data.replace("send_", "")
-        const client = sb()
-        const { data: conv } = await client
-          .from("chat_conversations")
-          .select("ai_suggestion, visitor_name")
-          .eq("id", convId)
-          .maybeSingle()
+    // Mark as resolved
+    await sbc.from("chat_conversations").update({
+      status: "resolved",
+      resolved_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }).eq("id", convId)
 
-        if (conv?.ai_suggestion) {
-          const adminName = cb.from?.first_name || "Pharmacy team"
-          const reply = conv.visitor_name
-            ? `Hi ${conv.visitor_name}, ${conv.ai_suggestion}`
-            : conv.ai_suggestion
-
-          // Save as admin message in the chat
-          await client.from("chat_messages").insert({
-            conversation_id: convId,
-            role: "admin",
-            content: reply,
-          })
-          await client.from("chat_conversations").update({
-            status: "resolved",
-            resolved_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          }).eq("id", convId)
-
-          // Confirm in Telegram
-          await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: cb.message?.chat?.id,
-              text: `✅ Reply sent by ${adminName}:\n"${reply.slice(0, 200)}"`,
-              reply_to_message_id: cb.message?.message_id,
-            }),
-          })
-        }
-      } else if (data.startsWith("own_")) {
-        // Admin chose to write their own reply
-        const convId = data.replace("own_", "")
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: cb.message?.chat?.id,
-            text: `✏️ Reply to this message with your response for the customer.`,
-            reply_to_message_id: cb.message?.message_id,
-          }),
-        })
-      }
-
-      return NextResponse.json({ ok: true })
-    }
-
-    // Handle regular message (admin replied to a bot message in the group)
-    if (update.message) {
-      const msg = update.message
-      // Only process replies to bot messages in the group
-      if (!msg.reply_to_message || msg.from?.is_bot) {
-        return NextResponse.json({ ok: true })
-      }
-
-      const replyToMsgId = msg.reply_to_message.message_id
-      const adminText = msg.text || ""
-      const adminName = msg.from?.first_name || "Pharmacy team"
-
-      if (!adminText.trim()) return NextResponse.json({ ok: true })
-
-      // Find the conversation by telegram_msg_id
-      const client = sb()
-      const { data: conv } = await client
-        .from("chat_conversations")
-        .select("id, visitor_name, status")
-        .eq("telegram_msg_id", replyToMsgId)
-        .maybeSingle()
-
-      if (!conv) {
-        // Maybe they replied to a forwarded message — check recent escalated conversations
-        // with the same chat group. Skip if not found.
-        return NextResponse.json({ ok: true })
-      }
-
-      // Save the admin's reply
-      await client.from("chat_messages").insert({
-        conversation_id: conv.id,
-        role: "admin",
-        content: adminText,
-      })
-
-      // Mark as resolved (admin can keep replying if needed — new messages reopen it)
-      await client.from("chat_conversations").update({
-        status: "resolved",
-        resolved_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }).eq("id", conv.id)
-
-      // Confirm in Telegram
-      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: msg.chat.id,
-          text: `✅ Reply sent to ${conv.visitor_name || "the customer"} by ${adminName}.`,
-          reply_to_message_id: msg.message_id,
-        }),
-      })
-    }
-
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ success: true })
   } catch (err: any) {
-    console.error("Telegram webhook error:", err)
-    return NextResponse.json({ ok: true }) // always return 200 to Telegram
+    return NextResponse.json({ error: err.message }, { status: 500 })
+  }
+}
+
+// DELETE /api/admin/chats?id=XXX
+export async function DELETE(req: NextRequest) {
+  try {
+    const id = new URL(req.url).searchParams.get("id")
+    if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
+    const sbc = admin()
+    await sbc.from("chat_messages").delete().eq("conversation_id", id)
+    await sbc.from("chat_conversations").delete().eq("id", id)
+    return NextResponse.json({ success: true })
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
