@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { ArrowLeft, MessageCircle, User, Bot, Loader2, Trash2, Clock, CheckCircle2, AlertCircle, Power, Eye, EyeOff, Send } from "lucide-react"
+import { ArrowLeft, MessageCircle, User, Bot, Loader2, Trash2, Clock, CheckCircle2, AlertCircle, Power, Eye, EyeOff, Send, Sparkles, Wand2 } from "lucide-react"
 
 export default function AdminChatsPage() {
   const [convs, setConvs] = useState<any[]>([])
@@ -13,6 +13,9 @@ export default function AdminChatsPage() {
   const [loadingMsgs, setLoadingMsgs] = useState(false)
   const [adminReply, setAdminReply] = useState("")
   const [sending, setSending] = useState(false)
+  const [suggestion, setSuggestion] = useState("")
+  const [loadingSuggestion, setLoadingSuggestion] = useState(false)
+  const [rewriting, setRewriting] = useState(false)
 
   // Settings
   const [chatEnabled, setChatEnabled] = useState(true)
@@ -69,16 +72,43 @@ export default function AdminChatsPage() {
   }, [load])
 
   const expand = async (id: string) => {
-    if (expanded === id) { setExpanded(null); return }
+    if (expanded === id) { setExpanded(null); setSuggestion(""); return }
     setExpanded(id)
     setLoadingMsgs(true)
+    setSuggestion("")
+    setAdminReply("")
     try {
       const r = await fetch(`/api/chat?conversation_id=${id}`)
       const d = await r.json()
       setMessages(d.messages || [])
     } catch { setMessages([]) }
     finally { setLoadingMsgs(false) }
+
+    // Fetch AI suggestion
+    const conv = convs.find(c => c.id === id)
+    if (conv && conv.status !== "resolved") {
+      setLoadingSuggestion(true)
+      try {
+        const r = await fetch(`/api/admin/chats/suggest?conversation_id=${id}`)
+        const d = await r.json()
+        if (d.suggestion) setSuggestion(d.suggestion)
+      } catch {}
+      finally { setLoadingSuggestion(false) }
+    }
   }
+
+  // Auto-refresh messages in expanded conversation
+  useEffect(() => {
+    if (!expanded) return
+    const timer = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/chat?conversation_id=${expanded}`)
+        const d = await r.json()
+        if (d.messages) setMessages(d.messages)
+      } catch {}
+    }, 5000)
+    return () => clearInterval(timer)
+  }, [expanded])
 
   const deleteConv = async (id: string) => {
     if (!confirm("Delete this conversation?")) return
@@ -86,22 +116,48 @@ export default function AdminChatsPage() {
     load()
   }
 
-  const sendAdminReply = async (convId: string) => {
-    if (!adminReply.trim() || sending) return
+  const sendAdminReply = async (convId: string, text?: string) => {
+    const msg = (text || adminReply).trim()
+    if (!msg || sending) return
     setSending(true)
     try {
       const r = await fetch("/api/admin/chats", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversation_id: convId, message: adminReply.trim() }),
+        body: JSON.stringify({ conversation_id: convId, message: msg }),
       })
       if (r.ok) {
         setAdminReply("")
-        expand(convId) // refresh messages
-        load() // refresh list
+        setSuggestion("")
+        expand(convId) // refresh messages + get new suggestion
       }
     } catch {}
     finally { setSending(false) }
+  }
+
+  const resolveChat = async (convId: string) => {
+    await fetch("/api/admin/chats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: convId, action: "resolve" }),
+    })
+    setExpanded(null)
+    load()
+  }
+
+  const rewriteWithAI = async () => {
+    if (!adminReply.trim() || rewriting) return
+    setRewriting(true)
+    try {
+      const r = await fetch("/api/admin/chats/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft: adminReply }),
+      })
+      const d = await r.json()
+      if (d.rewritten) setAdminReply(d.rewritten)
+    } catch {}
+    finally { setRewriting(false) }
   }
 
   return (
@@ -255,27 +311,66 @@ export default function AdminChatsPage() {
                         ))}
                       </div>
                     )}
-                    {/* Admin reply box */}
-                    {(c.status === "escalated" || c.status === "active") && (
-                      <div className="mt-3 flex gap-2">
-                        <input
-                          value={adminReply}
-                          onChange={e => setAdminReply(e.target.value)}
-                          onKeyDown={e => { if (e.key === "Enter") sendAdminReply(c.id) }}
-                          placeholder="Type your reply to the customer…"
-                          className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                        />
-                        <button
-                          onClick={() => sendAdminReply(c.id)}
-                          disabled={sending || !adminReply.trim()}
-                          className="rounded-lg bg-[#0B7C79] px-4 py-2 text-sm font-medium text-white hover:bg-[#0a6b68] disabled:opacity-50"
-                        >
-                          {sending ? "Sending…" : "Reply"}
-                        </button>
+                    {/* AI Suggestion */}
+                    {c.status !== "resolved" && (suggestion || loadingSuggestion) && (
+                      <div className="mt-3 rounded-lg border border-purple-100 bg-purple-50 p-3">
+                        <p className="mb-1.5 flex items-center gap-1 text-xs font-medium text-purple-700">
+                          <Sparkles className="h-3.5 w-3.5" /> AI Suggested Reply
+                        </p>
+                        {loadingSuggestion ? (
+                          <div className="flex items-center gap-2 text-xs text-purple-500"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating suggestion…</div>
+                        ) : (
+                          <>
+                            <p className="text-sm text-purple-900">{suggestion}</p>
+                            <div className="mt-2 flex gap-2">
+                              <button onClick={() => sendAdminReply(c.id, suggestion)} disabled={sending}
+                                className="rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50">
+                                ✅ Send This
+                              </button>
+                              <button onClick={() => { setAdminReply(suggestion); setSuggestion("") }}
+                                className="rounded-lg border border-purple-200 px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-100">
+                                ✏️ Edit First
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
+
+                    {/* Admin reply box */}
+                    {c.status !== "resolved" && (
+                      <div className="mt-3">
+                        <textarea
+                          value={adminReply}
+                          onChange={e => setAdminReply(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendAdminReply(c.id) } }}
+                          placeholder="Type your reply… (Enter to send, Shift+Enter for new line)"
+                          rows={2}
+                          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                        <div className="mt-2 flex items-center justify-between">
+                          <div className="flex gap-2">
+                            <button onClick={rewriteWithAI} disabled={rewriting || !adminReply.trim()}
+                              className="inline-flex items-center gap-1 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-50">
+                              {rewriting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />} Rewrite with AI
+                            </button>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={() => resolveChat(c.id)}
+                              className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100">
+                              <CheckCircle2 className="mr-1 inline h-3 w-3" /> Resolve
+                            </button>
+                            <button onClick={() => sendAdminReply(c.id)} disabled={sending || !adminReply.trim()}
+                              className="inline-flex items-center gap-1 rounded-lg bg-[#0B7C79] px-4 py-1.5 text-xs font-medium text-white hover:bg-[#0a6b68] disabled:opacity-50">
+                              {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />} Send
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {c.status === "resolved" && (
-                      <p className="mt-2 flex items-center gap-1 text-xs text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" /> Resolved — reply was sent to the customer.</p>
+                      <p className="mt-2 flex items-center gap-1 text-xs text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" /> Resolved</p>
                     )}
                   </div>
                 )}
