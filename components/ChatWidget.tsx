@@ -18,6 +18,8 @@ export default function ChatWidget() {
   const [escContact, setEscContact] = useState("")
   const [escReason, setEscReason] = useState("")
   const [escalating, setEscalating] = useState(false)
+  const [escalatedAt, setEscalatedAt] = useState<number | null>(null)
+  const [waitTimeout, setWaitTimeout] = useState(false)
   const [pollTimer, setPollTimer] = useState<any>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -63,6 +65,14 @@ export default function ChatWidget() {
     if (pollTimer) { clearInterval(pollTimer); setPollTimer(null) }
   }, [status, convId, open]) // eslint-disable-line
 
+  // 3-minute timeout — if no admin reply after escalation
+  useEffect(() => {
+    if (status !== "escalated" || !escalatedAt) { setWaitTimeout(false); return }
+    const remaining = Math.max(0, 180000 - (Date.now() - escalatedAt))
+    const timer = setTimeout(() => setWaitTimeout(true), remaining)
+    return () => clearTimeout(timer)
+  }, [status, escalatedAt])
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" })
   }, [messages, loading])
@@ -76,10 +86,12 @@ export default function ChatWidget() {
       const r = await fetch(`/api/chat?conversation_id=${id}`)
       const d = await r.json()
       if (r.ok) {
-        setMessages(d.messages?.map((m: any) => ({ role: m.role, content: m.content })) || [])
+        const newMsgs = d.messages?.map((m: any) => ({ role: m.role, content: m.content })) || []
+        setMessages(newMsgs)
         if (d.status && d.status !== status) {
           setStatus(d.status)
           saveConv(id, d.status)
+          if (d.status === "resolved") { setWaitTimeout(false); setEscalatedAt(null) }
         }
       }
     } catch {}
@@ -132,6 +144,8 @@ export default function ChatWidget() {
       if (r.ok) {
         setStatus("escalated")
         setShowEscForm(false)
+        setEscalatedAt(Date.now())
+        setWaitTimeout(false)
         saveConv(convId, "escalated")
         setMessages(prev => [...prev, {
           role: "assistant",
@@ -261,9 +275,16 @@ export default function ChatWidget() {
         )}
 
         {status === "escalated" && !loading && (
-          <div className="flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for a team member to respond…
-          </div>
+          waitTimeout ? (
+            <div className="rounded-lg bg-amber-50 px-3 py-2.5 text-xs text-amber-700">
+              <p className="font-medium">No one is available right now</p>
+              <p className="mt-0.5 text-amber-600">Our team has your message and will get back to you shortly. You can also call us at <a href="tel:5085644459" className="font-medium underline">(508) 564-4459</a> during business hours.</p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for a team member to respond…
+            </div>
+          )
         )}
         </>
         )}
