@@ -25,6 +25,7 @@ const sidebarLinks = [
   { href: "/admin/statements", label: "Statements", icon: FileStack, key: "statements" },
   { href: "/admin/medication-tasks", label: "Medication Tasks", icon: Pill, key: "medication-tasks" },
   { href: "/admin/users", label: "User Management", icon: Users, key: "users" },
+  { href: "/admin/inventory", label: "Inventory", icon: Package, key: "inventory" },
 ]
 
 export const dynamic = "force-dynamic"
