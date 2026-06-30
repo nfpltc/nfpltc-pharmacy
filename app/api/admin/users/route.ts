@@ -13,7 +13,7 @@ function admin() {
   )
 }
 
-const ALL_PAGES = ["dashboard","crm","statements","medication-tasks","chats","blog","enrollments","contacts","credit-cards","assistant","users"]
+const ALL_PAGES = ["dashboard","crm","statements","medication-tasks","chats","blog","enrollments","contacts","credit-cards","vaccines","jobs","candidates","assistant","users"]
 
 // GET /api/admin/users — list all admin users
 export async function GET() {
