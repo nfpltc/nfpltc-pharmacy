@@ -43,7 +43,7 @@ export async function GET() {
     if (!adminUser) {
       // User exists in Supabase Auth but not in admin_users — treat as full admin (backward compat)
       return NextResponse.json({
-        user: { id: null, email: user.email, name: user.email?.split("@")[0], role: "admin", allowed_pages: ["dashboard","crm","statements","medication-tasks","chats","blog","enrollments","contacts","credit-cards","assistant","users"], active: true },
+        user: { id: null, email: user.email, name: user.email?.split("@")[0], role: "admin", allowed_pages: ["dashboard","crm","statements","medication-tasks","chats","blog","enrollments","contacts","credit-cards","vaccines","jobs","candidates","assistant","users"], active: true },
       })
     }
 
