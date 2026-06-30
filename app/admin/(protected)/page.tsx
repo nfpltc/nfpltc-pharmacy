@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { cookies } from "next/headers"
 import { createServerClient } from "@supabase/ssr"
+import { createClient } from "@supabase/supabase-js"
 import {
   ShieldCheck, Users, LogOut,
   Briefcase, CreditCard, Syringe, MessageSquare, Receipt, UserCheck, BookOpen, UsersRound, FileStack, Bot, Pill, MessageCircle
@@ -8,22 +9,22 @@ import {
 import AnalyticsDashboard from "@/components/AnalyticsDashboard"
 
 const sidebarLinks = [
-  { href: "/admin", label: "Overview", icon: ShieldCheck, active: true },
-  { href: "/admin/assistant", label: "AI Assistant", icon: Bot },
-  { href: "/admin/chats", label: "Chats", icon: MessageCircle },
-  { href: "/admin/enrollments", label: "Enrollments", icon: UserCheck },
-  { href: "/admin/credit-cards", label: "Credit Cards", icon: CreditCard },
-  { href: "/admin/vaccines", label: "Vaccines", icon: Syringe },
-  { href: "/admin/contacts", label: "Contacts", icon: MessageSquare },
+  { href: "/admin", label: "Overview", icon: ShieldCheck, active: true, key: "dashboard" },
+  { href: "/admin/assistant", label: "AI Assistant", icon: Bot, key: "assistant" },
+  { href: "/admin/chats", label: "Chats", icon: MessageCircle, key: "chats" },
+  { href: "/admin/enrollments", label: "Enrollments", icon: UserCheck, key: "enrollments" },
+  { href: "/admin/credit-cards", label: "Credit Cards", icon: CreditCard, key: "credit-cards" },
+  { href: "/admin/vaccines", label: "Vaccines", icon: Syringe, key: "vaccines" },
+  { href: "/admin/contacts", label: "Contacts", icon: MessageSquare, key: "contacts" },
   // { href: "/admin/bills", label: "Bills", icon: Receipt },          // hidden from sidebar (page still works via direct URL)
-  { href: "/admin/jobs", label: "Jobs", icon: Briefcase },
-  { href: "/admin/candidates", label: "Candidates", icon: Users },
-  { href: "/admin/blogs", label: "Blog", icon: BookOpen },
+  { href: "/admin/jobs", label: "Jobs", icon: Briefcase, key: "jobs" },
+  { href: "/admin/candidates", label: "Candidates", icon: Users, key: "candidates" },
+  { href: "/admin/blogs", label: "Blog", icon: BookOpen, key: "blog" },
   // { href: "/admin/subscribers", label: "Subscribers", icon: UsersRound }, // hidden from sidebar (page still works via direct URL)
-  { href: "/admin/customers", label: "Customers", icon: UsersRound },
-  { href: "/admin/statements", label: "Statements", icon: FileStack },
-  { href: "/admin/medication-tasks", label: "Medication Tasks", icon: Pill },
-  { href: "/admin/users", label: "User Management", icon: Users },
+  { href: "/admin/customers", label: "Customers", icon: UsersRound, key: "crm" },
+  { href: "/admin/statements", label: "Statements", icon: FileStack, key: "statements" },
+  { href: "/admin/medication-tasks", label: "Medication Tasks", icon: Pill, key: "medication-tasks" },
+  { href: "/admin/users", label: "User Management", icon: Users, key: "users" },
 ]
 
 export const dynamic = "force-dynamic"
@@ -41,6 +42,30 @@ export default async function AdminHomePage() {
   const { data: userRes } = await supabase.auth.getUser()
   const user = userRes?.user
   const displayName = user?.user_metadata?.full_name || user?.email?.split("@")?.[0] || "Admin"
+
+  // Look up this user's role + allowed pages (service-role client, bypasses RLS)
+  let allowedPages: string[] | null = null // null = full access (admin or no record found, backward compat)
+  if (user?.email) {
+    try {
+      const adminSb = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { persistSession: false, autoRefreshToken: false } }
+      )
+      const { data: adminUser } = await adminSb
+        .from("admin_users")
+        .select("role, allowed_pages, active")
+        .eq("email", user.email)
+        .maybeSingle()
+      if (adminUser && adminUser.role !== "admin") {
+        allowedPages = adminUser.active ? (adminUser.allowed_pages || []) : []
+      }
+    } catch { /* table may not exist yet — fall back to full access */ }
+  }
+
+  const visibleLinks = allowedPages === null
+    ? sidebarLinks
+    : sidebarLinks.filter(l => l.key === "dashboard" || allowedPages!.includes(l.key))
 
   return (
     <main className="min-h-screen bg-[#F7F5EF]">
@@ -76,7 +101,7 @@ export default async function AdminHomePage() {
         <aside className="space-y-3">
           <nav className="rounded-xl border border-emerald-900/10 bg-white p-2 shadow-sm">
             <ul className="space-y-1">
-              {sidebarLinks.map((link) => (
+              {visibleLinks.map((link) => (
                 <li key={link.href}>
                   <Link
                     href={link.href}
