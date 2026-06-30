@@ -8,10 +8,16 @@ interface Task {
   id: string
   patient_name: string
   patient_account: string | null
+  facility?: string | null
   medication: string
-  medications?: { name: string; dose?: string; due_at?: string; instructions?: string }[]
+  medications?: { name: string; dose?: string; form?: string; dose_timing?: string; due_at?: string; instructions?: string }[]
   comments?: string | null
   instructions: string | null
+  provider?: string | null
+  doctor_contacted?: string | null
+  notes?: string | null
+  start_date?: string | null
+  delivery_date?: string | null
   priority: string
   status: string
   created_at: string
@@ -28,6 +34,8 @@ export default function MedicationTasksPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [counts, setCounts] = useState({ pending: 0, completed: 0, cancelled: 0 })
   const [filter, setFilter] = useState("pending")
+  const [dateFilter, setDateFilter] = useState("all") // all | today | tomorrow | week
+  const [expandedTask, setExpandedTask] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [showDefaults, setShowDefaults] = useState(false)
@@ -47,6 +55,32 @@ export default function MedicationTasksPage() {
   }, [filter]) // eslint-disable-line
 
   useEffect(() => { load() }, [load])
+
+  // Date-range filter applied client-side on top of status filter.
+  // Checks each task's medications[].due_at, falling back to start_date/delivery_date.
+  const taskDateMatches = (t: Task, range: string): boolean => {
+    if (range === "all") return true
+    const dates: Date[] = []
+    ;(t.medications || []).forEach(m => { if (m.due_at) { const d = new Date(m.due_at); if (!isNaN(d.getTime())) dates.push(d) } })
+    if (t.start_date) { const d = new Date(t.start_date); if (!isNaN(d.getTime())) dates.push(d) }
+    if (t.delivery_date) { const d = new Date(t.delivery_date); if (!isNaN(d.getTime())) dates.push(d) }
+    if (dates.length === 0) return false
+
+    const now = new Date()
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const todayEnd = new Date(todayStart); todayEnd.setDate(todayEnd.getDate() + 1)
+    const tomorrowStart = new Date(todayEnd)
+    const tomorrowEnd = new Date(tomorrowStart); tomorrowEnd.setDate(tomorrowEnd.getDate() + 1)
+    const weekEnd = new Date(todayStart); weekEnd.setDate(weekEnd.getDate() + 7)
+
+    return dates.some(d => {
+      if (range === "today") return d >= todayStart && d < todayEnd
+      if (range === "tomorrow") return d >= tomorrowStart && d < tomorrowEnd
+      if (range === "week") return d >= todayStart && d < weekEnd
+      return true
+    })
+  }
+  const filteredTasks = tasks.filter(t => taskDateMatches(t, dateFilter))
 
   const markComplete = async (id: string) => {
     const r = await fetch("/api/admin/medication-tasks", {
@@ -145,7 +179,7 @@ John Smith,10012345,Omeprazole 20mg,1 capsule,2026-07-01 07:00,Before breakfast,
         )}
 
         {/* Stat cards */}
-        <div className="mb-5 grid grid-cols-3 gap-4">
+        <div className="mb-3 grid grid-cols-3 gap-4">
           {[
             { l: "Pending", v: counts.pending, cl: "text-amber-600", f: "pending" },
             { l: "Completed", v: counts.completed, cl: "text-emerald-600", f: "completed" },
@@ -159,14 +193,31 @@ John Smith,10012345,Omeprazole 20mg,1 capsule,2026-07-01 07:00,Before breakfast,
           ))}
         </div>
 
+        {/* Date range filter pills */}
+        <div className="mb-5 flex flex-wrap gap-1.5">
+          {[
+            { l: "All Dates", v: "all" },
+            { l: "Today", v: "today" },
+            { l: "Tomorrow", v: "tomorrow" },
+            { l: "Next 7 Days", v: "week" },
+          ].map(d => (
+            <button key={d.v} onClick={() => setDateFilter(d.v)}
+              className={`rounded-full px-3 py-1.5 text-xs font-medium ${dateFilter === d.v ? "bg-[#0B7C79] text-white" : "border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"}`}>
+              {d.l}
+            </button>
+          ))}
+          {dateFilter !== "all" && <span className="self-center text-xs text-gray-400">{filteredTasks.length} of {tasks.length} shown</span>}
+        </div>
+
         {/* Task list */}
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-12 text-gray-500"><Loader2 className="h-5 w-5 animate-spin" /> Loading…</div>
-        ) : tasks.length === 0 ? (
-          <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-500">No {filter} tasks.</div>
+        ) : filteredTasks.length === 0 ? (
+          <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-500">No {filter} tasks{dateFilter !== "all" ? ` for "${dateFilter}"` : ""}.</div>
+
         ) : (
           <div className="space-y-3">
-            {tasks.map(t => <TaskCard key={t.id} t={t} onComplete={() => markComplete(t.id)} onCancel={() => cancelTask(t.id)} onEdit={() => setEditing(t)} onDelete={() => deleteTask(t.id)} />)}
+            {filteredTasks.map(t => <TaskCard key={t.id} t={t} expanded={expandedTask === t.id} onToggleExpand={() => setExpandedTask(expandedTask === t.id ? null : t.id)} onComplete={() => markComplete(t.id)} onCancel={() => cancelTask(t.id)} onEdit={() => setEditing(t)} onDelete={() => deleteTask(t.id)} />)}
           </div>
         )}
       </section>
@@ -180,15 +231,18 @@ John Smith,10012345,Omeprazole 20mg,1 capsule,2026-07-01 07:00,Before breakfast,
   )
 }
 
-function TaskCard({ t, onComplete, onCancel, onEdit, onDelete }: { t: Task; onComplete: () => void; onCancel: () => void; onEdit: () => void; onDelete: () => void }) {
+function TaskCard({ t, expanded, onToggleExpand, onComplete, onCancel, onEdit, onDelete }: { t: Task; expanded: boolean; onToggleExpand: () => void; onComplete: () => void; onCancel: () => void; onEdit: () => void; onDelete: () => void }) {
   const clicked = t.recipients?.filter(r => r.clicked_at).length || 0
+  const hasExtra = Boolean(t.facility || t.provider || t.doctor_contacted || t.notes || t.start_date || t.delivery_date || (t.medications || []).some(m => m.form || m.dose_timing))
+
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex-1">
+        <div className="flex-1 cursor-pointer" onClick={onToggleExpand}>
           <div className="flex items-center gap-2">
             {t.priority === "urgent" && <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">Urgent</span>}
             <StatusBadge status={t.status} />
+            {t.facility && <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">{t.facility}</span>}
           </div>
           <h3 className="mt-1.5 font-semibold text-gray-900">{t.patient_name}{t.patient_account ? ` · ${t.patient_account}` : ""}</h3>
           {Array.isArray(t.medications) && t.medications.length > 0 ? (
@@ -197,6 +251,8 @@ function TaskCard({ t, onComplete, onCancel, onEdit, onDelete }: { t: Task; onCo
                 <li key={i} className="text-sm text-gray-700">
                   <span className="font-medium">{m.name}</span>
                   {m.dose ? ` · ${m.dose}` : ""}
+                  {m.form ? ` ${m.form}` : ""}
+                  {m.dose_timing ? <span className="text-gray-500"> · {m.dose_timing}</span> : ""}
                   {m.due_at ? <span className="text-gray-500"> · {new Date(m.due_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span> : ""}
                   {m.instructions ? <span className="text-gray-500"> · {m.instructions}</span> : ""}
                 </li>
@@ -213,6 +269,7 @@ function TaskCard({ t, onComplete, onCancel, onEdit, onDelete }: { t: Task; onCo
             {t.status === "pending" && <span className="text-gray-400">⟳ every {t.follow_up_interval_hours || 12}h</span>}
             {clicked > 0 && <span className="text-emerald-600">{clicked} opened the link</span>}
             <span>{new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+            {hasExtra && <span className="font-medium text-[#0B7C79]">{expanded ? "▲ Hide details" : "▼ Show all details"}</span>}
           </div>
 
           {t.status === "completed" && (
@@ -220,6 +277,21 @@ function TaskCard({ t, onComplete, onCancel, onEdit, onDelete }: { t: Task; onCo
               ✓ Completed by {t.completed_by}{t.completed_via === "link" ? " (via email link)" : " (manually)"}
               {t.completed_at ? ` · ${new Date(t.completed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""}
             </p>
+          )}
+
+          {/* Expanded full-column detail */}
+          {expanded && hasExtra && (
+            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg bg-gray-50 p-3 text-xs sm:grid-cols-3" onClick={e => e.stopPropagation()}>
+              {t.facility && <DetailField label="Facility" value={t.facility} />}
+              {t.provider && <DetailField label="Provider / Doctor" value={t.provider} />}
+              {t.doctor_contacted && <DetailField label="Doctor Contacted" value={t.doctor_contacted} />}
+              {t.start_date && <DetailField label="Start Date" value={new Date(t.start_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} />}
+              {t.delivery_date && <DetailField label="Delivery Date" value={new Date(t.delivery_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} />}
+              {t.notes && <DetailField label="Notes" value={t.notes} />}
+              {(t.medications || []).map((m, i) => (m.form || m.dose_timing) ? (
+                <DetailField key={i} label={`${m.name} — Form / Timing`} value={[m.form, m.dose_timing].filter(Boolean).join(" · ")} />
+              ) : null)}
+            </div>
           )}
         </div>
 
@@ -242,6 +314,15 @@ function TaskCard({ t, onComplete, onCancel, onEdit, onDelete }: { t: Task; onCo
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+function DetailField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-0.5 text-gray-700">{value}</p>
     </div>
   )
 }
@@ -670,12 +751,20 @@ function ImportModal({ onClose, onDone, onDownloadSample }: { onClose: () => voi
   // Field options the system understands
   const FIELDS = [
     { key: "patient_name", label: "Patient Name *", required: true },
-    { key: "patient_account", label: "Patient Account / Facility" },
+    { key: "patient_account", label: "Patient Account / ID" },
+    { key: "facility", label: "Facility" },
     { key: "medication", label: "Medication Name *", required: true },
     { key: "dose", label: "Dose / Strength" },
-    { key: "due_at", label: "Due Date/Time" },
+    { key: "form", label: "Form (tab/cap/etc)" },
+    { key: "dose_timing", label: "Dose Timing (PRN, BEDTIME, etc)" },
+    { key: "due_at", label: "Due Date/Time (actual date)" },
+    { key: "start_date", label: "Start Date" },
+    { key: "delivery_date", label: "Delivery Date" },
+    { key: "provider", label: "Provider / Doctor" },
+    { key: "doctor_contacted", label: "Doctor Contacted (notes)" },
+    { key: "notes", label: "Notes" },
     { key: "instructions", label: "Instructions" },
-    { key: "comments", label: "Comments / Provider" },
+    { key: "comments", label: "Comments" },
     { key: "priority", label: "Priority" },
     { key: "completed", label: "Completed (skip if checked)" },
   ]
@@ -691,12 +780,18 @@ function ImportModal({ onClose, onDone, onDownloadSample }: { onClose: () => voi
       }
     }
     tryMatch("patient_name", ["resident name", "resident", "patient name", "patient"])
-    tryMatch("patient_account", ["facility", "patient account", "account"])
+    tryMatch("patient_account", ["patient account", "account number", "account"])
+    tryMatch("facility", ["facility"])
     tryMatch("medication", ["drug name", "drug", "medication name", "medication"])
     tryMatch("dose", ["strength", "dose"])
-    tryMatch("due_at", ["time of next dose", "next dose", "due at", "due date", "medication delivery date"])
-    tryMatch("instructions", ["notes", "instructions", "form"])
-    tryMatch("comments", ["provider", "doctor contacted for prescripion", "doctor contacted", "comments"])
+    tryMatch("form", ["form"])
+    tryMatch("dose_timing", ["time of next dose", "next dose"])
+    tryMatch("due_at", ["medication delivery date", "delivery date", "due at", "due date"])
+    tryMatch("start_date", ["start date"])
+    tryMatch("delivery_date", ["medication delivery date", "delivery date"])
+    tryMatch("provider", ["provider"])
+    tryMatch("doctor_contacted", ["doctor contacted for prescripion", "doctor contacted", "doctor"])
+    tryMatch("notes", ["notes"])
     tryMatch("priority", ["priority"])
     tryMatch("completed", ["completed", "status"])
     return guesses
@@ -760,9 +855,17 @@ function ImportModal({ onClose, onDone, onDownloadSample }: { onClose: () => voi
         .map(row => ({
           patient_name: String(row[mapping.patient_name] || "").trim(),
           patient_account: mapping.patient_account ? String(row[mapping.patient_account] || "").trim() : "",
+          facility: mapping.facility ? String(row[mapping.facility] || "").trim() : "",
           medication: String(row[mapping.medication] || "").trim(),
           dose: mapping.dose ? String(row[mapping.dose] || "").trim() : "",
+          form: mapping.form ? String(row[mapping.form] || "").trim() : "",
+          dose_timing: mapping.dose_timing ? String(row[mapping.dose_timing] || "").trim() : "",
           due_at: mapping.due_at ? row[mapping.due_at] : "",
+          start_date: mapping.start_date ? row[mapping.start_date] : "",
+          delivery_date: mapping.delivery_date ? row[mapping.delivery_date] : "",
+          provider: mapping.provider ? String(row[mapping.provider] || "").trim() : "",
+          doctor_contacted: mapping.doctor_contacted ? String(row[mapping.doctor_contacted] || "").trim() : "",
+          notes: mapping.notes ? String(row[mapping.notes] || "").trim() : "",
           instructions: mapping.instructions ? String(row[mapping.instructions] || "").trim() : "",
           comments: mapping.comments ? String(row[mapping.comments] || "").trim() : "",
           priority: mapping.priority ? String(row[mapping.priority] || "").trim() : "",
