@@ -1,5 +1,6 @@
 "use client"
 import { useState, useEffect } from "react"
+import { Loader2 } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface Job {
@@ -108,6 +109,25 @@ export default function AdminJobsPage() {
   }
 
   const closeForm = () => { setShowForm(false); setEditing(null); setForm(emptyForm) }
+
+  // AI rewrite state
+  const [rewriting, setRewriting] = useState<string | null>(null)
+
+  const aiRewrite = async (field: keyof typeof form) => {
+    const content = form[field] as string
+    if (!content.trim()) { setJobMsg({ ok: false, text: `Type something in ${field} first, then click ✨ to rewrite` }); return }
+    setRewriting(field)
+    try {
+      const r = await fetch("/api/admin/jobs/rewrite", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ field, content, job_title: form.title || "Pharmacy Staff", department: form.department, type: form.type }),
+      })
+      const d = await r.json()
+      if (r.ok && d.result) setForm(prev => ({ ...prev, [field]: d.result }))
+      else setJobMsg({ ok: false, text: d.error || "AI rewrite failed" })
+    } catch { setJobMsg({ ok: false, text: "Network error" }) }
+    finally { setRewriting(null) }
+  }
 
   const jobList = jobs.filter(j => (jobFilter === "all" || j.status === jobFilter) &&
     (!jobSearch || j.title.toLowerCase().includes(jobSearch.toLowerCase()) || j.department.toLowerCase().includes(jobSearch.toLowerCase())))
@@ -326,21 +346,61 @@ export default function AdminJobsPage() {
               <h3 className="text-lg font-semibold">{editing ? "Edit Job" : "Post New Job"}</h3>
               <button onClick={closeForm} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
             </div>
-            <form onSubmit={saveJob} className="space-y-4">
-              <div><label className="mb-1 block text-sm font-medium text-gray-700">Job Title *</label><input required value={form.title} onChange={e => setForm({...form, title: e.target.value})} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" placeholder="e.g. Pharmacy Technician" /></div>
+            <form onSubmit={saveJob} className="space-y-4 max-h-[80vh] overflow-y-auto pr-1">
+              {/* Job Title */}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Job Title *</label>
+                <input required value={form.title} onChange={e => setForm({...form, title: e.target.value})}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" placeholder="e.g. Pharmacy Technician" />
+              </div>
+
+              {/* Department + Location */}
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="mb-1 block text-sm font-medium text-gray-700">Department</label><input value={form.department} onChange={e => setForm({...form, department: e.target.value})} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></div>
                 <div><label className="mb-1 block text-sm font-medium text-gray-700">Location</label><input value={form.location} onChange={e => setForm({...form, location: e.target.value})} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></div>
               </div>
+
+              {/* Type + Salary */}
               <div className="grid grid-cols-2 gap-4">
-                <div><label className="mb-1 block text-sm font-medium text-gray-700">Type</label><select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"><option>Full-time</option><option>Part-time</option><option>Full-time / Part-time</option><option>Contract</option><option>Per Diem</option></select></div>
+                <div><label className="mb-1 block text-sm font-medium text-gray-700">Type</label>
+                  <select value={form.type} onChange={e => setForm({...form, type: e.target.value})} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                    <option>Full-time</option><option>Part-time</option><option>Full-time / Part-time</option><option>Contract</option><option>Per Diem</option>
+                  </select>
+                </div>
                 <div><label className="mb-1 block text-sm font-medium text-gray-700">Salary Range</label><input value={form.salary_range} onChange={e => setForm({...form, salary_range: e.target.value})} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" placeholder="e.g. $50k–$65k" /></div>
               </div>
-              <div><label className="mb-1 block text-sm font-medium text-gray-700">Description *</label><textarea required value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" rows={3} /></div>
-              <div><label className="mb-1 block text-sm font-medium text-gray-700">Responsibilities (one per line)</label><textarea value={form.responsibilities} onChange={e => setForm({...form, responsibilities: e.target.value})} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" rows={3} /></div>
-              <div><label className="mb-1 block text-sm font-medium text-gray-700">Requirements (one per line)</label><textarea value={form.requirements} onChange={e => setForm({...form, requirements: e.target.value})} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" rows={3} /></div>
-              <div><label className="mb-1 block text-sm font-medium text-gray-700">Benefits (one per line)</label><textarea value={form.benefits} onChange={e => setForm({...form, benefits: e.target.value})} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" rows={3} /></div>
-              <div><label className="mb-1 block text-sm font-medium text-gray-700">Status</label><select value={form.status} onChange={e => setForm({...form, status: e.target.value})} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"><option value="active">Active</option><option value="draft">Draft</option><option value="closed">Closed</option></select></div>
+
+              {/* Description with AI button */}
+              <AIField label="Description *" required fieldKey="description" value={form.description}
+                onChange={v => setForm({...form, description: v})} rows={3}
+                loading={rewriting === "description"} onRewrite={() => aiRewrite("description")}
+                hint="Describe the role in a few words — AI will expand it" />
+
+              {/* Responsibilities */}
+              <AIField label="Responsibilities" fieldKey="responsibilities" value={form.responsibilities}
+                onChange={v => setForm({...form, responsibilities: v})} rows={4}
+                loading={rewriting === "responsibilities"} onRewrite={() => aiRewrite("responsibilities")}
+                hint="List a few key duties — AI will reformat as clean bullet points" />
+
+              {/* Requirements */}
+              <AIField label="Requirements" fieldKey="requirements" value={form.requirements}
+                onChange={v => setForm({...form, requirements: v})} rows={4}
+                loading={rewriting === "requirements"} onRewrite={() => aiRewrite("requirements")}
+                hint="Jot down qualifications — AI will polish them" />
+
+              {/* Benefits */}
+              <AIField label="Benefits" fieldKey="benefits" value={form.benefits}
+                onChange={v => setForm({...form, benefits: v})} rows={3}
+                loading={rewriting === "benefits"} onRewrite={() => aiRewrite("benefits")}
+                hint="List a few perks — AI will make them appealing" />
+
+              {/* Status */}
+              <div><label className="mb-1 block text-sm font-medium text-gray-700">Status</label>
+                <select value={form.status} onChange={e => setForm({...form, status: e.target.value})} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                  <option value="active">Active</option><option value="draft">Draft</option><option value="closed">Closed</option>
+                </select>
+              </div>
+
               <div className="flex justify-end gap-3 border-t pt-4">
                 <button type="button" onClick={closeForm} className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
                 <button type="submit" className="rounded-lg bg-[#0B7C79] px-6 py-2 text-sm font-medium text-white hover:bg-[#0a6b68]">{editing ? "Update" : "Post Job"}</button>
@@ -349,6 +409,31 @@ export default function AdminJobsPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+
+// ── AIField — textarea with an AI rewrite button ──────────────────────────────
+function AIField({ label, fieldKey, value, onChange, rows, loading, onRewrite, hint, required }:
+  { label: string; fieldKey: string; value: string; onChange: (v: string) => void
+    rows: number; loading: boolean; onRewrite: () => void; hint?: string; required?: boolean }) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <label className="text-sm font-medium text-gray-700" htmlFor={fieldKey}>{label}</label>
+        <button type="button" onClick={onRewrite} disabled={loading || !value.trim()}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          title={value.trim() ? "Rewrite with AI" : "Type something first"}>
+          {loading
+            ? <><Loader2 className="h-3 w-3 animate-spin" /> Rewriting…</>
+            : <>✨ Rewrite with AI</>}
+        </button>
+      </div>
+      <textarea id={fieldKey} required={required} value={value} onChange={e => onChange(e.target.value)} rows={rows}
+        placeholder={hint}
+        className={`w-full rounded-lg border px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none resize-none transition-all ${loading ? "border-purple-300 bg-purple-50/50 text-gray-400" : "border-gray-200"}`} />
+      {hint && !value && <p className="mt-1 text-xs text-gray-400">💡 {hint}</p>}
     </div>
   )
 }
