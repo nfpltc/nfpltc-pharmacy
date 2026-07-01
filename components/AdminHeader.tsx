@@ -13,7 +13,7 @@ function getPageTitle(pathname: string): string {
     "/admin/credit-cards": "Credit Cards",
     "/admin/vaccines": "Vaccines",
     "/admin/contacts": "Contacts",
-    "/admin/jobs": "Jobs",
+    "/admin/jobs": "Jobs & Candidates",
     "/admin/candidates": "Candidates",
     "/admin/blogs": "Blog",
     "/admin/customers": "Customers",
