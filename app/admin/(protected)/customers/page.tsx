@@ -90,19 +90,9 @@ export default function AdminCustomersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-emerald-700 to-emerald-600 px-6 py-8 text-white">
-        <Link href="/admin" className="mb-2 inline-flex items-center gap-1 text-sm opacity-90 hover:opacity-100">
-          <ArrowLeft className="h-4 w-4" /> Dashboard
-        </Link>
-        <h1 className="text-3xl font-bold">Customers</h1>
-        <p className="mt-1 text-sm opacity-90">
-          {stats.total} customers · {stats.with_email} with email · {stats.opted_out} opted out
-        </p>
-      </div>
+    <div>
 
-      <div className="mx-auto max-w-7xl p-6">
+      <div className="mx-auto max-w-7xl">
         {/* Tab switcher */}
         <div className="mb-6 flex border-b border-gray-200 bg-white rounded-t-lg">
           <button
