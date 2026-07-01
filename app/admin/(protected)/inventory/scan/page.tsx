@@ -79,10 +79,24 @@ export default function ScanPage() {
         return
       }
 
-      // ZXing fallback removed — BarcodeDetector not available on this browser (Safari iOS).
-      // Stop camera and prompt user to use USB scanner or type barcode.
-      stopCamera()
-      alert("Camera barcode scanning is not supported on this browser (Safari iOS). Please use a USB/Bluetooth barcode scanner, or type the barcode manually in the 'USB / Type' tab.")
+      // ZXing fallback — works on Safari iOS, Firefox, all browsers without BarcodeDetector
+      try {
+        const { BrowserMultiFormatReader } = await import("@zxing/browser")
+        const reader = new BrowserMultiFormatReader()
+        reader.decodeFromStream(stream, videoRef.current!, async (result, err) => {
+          if (!result) return
+          const code = result.getText()
+          const now = Date.now()
+          if (code !== lastCodeRef.current || now - lastCodeTimeRef.current > 2500) {
+            lastCodeRef.current = code
+            lastCodeTimeRef.current = now
+            await handleBarcode(code)
+          }
+        })
+      } catch (zxingErr) {
+        stopCamera()
+        alert("Camera scanning unavailable. Please use the USB/Type tab to enter barcodes manually.")
+      }
     } catch (e: any) {
       setScanning(false)
       alert("Camera unavailable: " + (e.message || "permission denied"))
