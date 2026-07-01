@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { ArrowLeft, Users, Plus, Pencil, Trash2, Loader2, Shield, Key, X, Check } from "lucide-react"
+import { Users, Plus, Pencil, Trash2, Loader2, Shield, Key, X, Check } from "lucide-react"
 
 const PAGE_LABELS: Record<string, string> = {
   dashboard: "Dashboard", crm: "CRM / Customers", statements: "Statements",
@@ -42,28 +42,18 @@ export default function AdminUsersPage() {
   }
 
   if (!isAdmin && currentUser) return (
-    <main className="min-h-screen bg-[#F7F5EF] p-8">
+    <div>
       <div className="mx-auto max-w-lg rounded-xl bg-white p-8 text-center shadow-sm">
         <Shield className="mx-auto mb-3 h-12 w-12 text-gray-400" />
         <h2 className="text-lg font-semibold">Admin Only</h2>
         <p className="mt-2 text-sm text-gray-500">You don't have permission to manage users.</p>
         <div className="mt-6 text-left"><ChangePasswordForm /></div>
       </div>
-    </main>
+    </div>
   )
 
   return (
-    <main className="min-h-screen bg-[#F7F5EF]">
-      <section style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}>
-        <div className="mx-auto w-full max-w-5xl px-6 py-8">
-          <Link href="/admin" className="mb-2 inline-flex items-center gap-1 text-sm text-white/90 hover:text-white"><ArrowLeft className="h-4 w-4" /> Dashboard</Link>
-          <div className="flex items-center justify-between">
-            <h1 className="flex items-center gap-2 text-2xl font-semibold text-white"><Users className="h-7 w-7" /> User Management</h1>
-            <button onClick={() => { setShowModal(true); setEditing(null) }} className="inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-sm font-medium text-[#0B7C79]"><Plus className="h-4 w-4" /> Add User</button>
-          </div>
-        </div>
-      </section>
-      <section className="mx-auto w-full max-w-5xl px-6 py-6">
+    <div>
         {msg && <div className="mb-4 rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{msg}</div>}
         {loading ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div> : (
           <div className="space-y-3">
@@ -100,9 +90,9 @@ export default function AdminUsersPage() {
           <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700"><Key className="h-4 w-4" /> Change My Password</h3>
           <ChangePasswordForm />
         </div>
-      </section>
+      
       {showModal && <UserModal user={editing} allPages={allPages} onClose={() => { setShowModal(false); setEditing(null) }} onSaved={m => { setShowModal(false); setEditing(null); setMsg(m); load() }} />}
-    </main>
+    </div>
   )
 }
 
