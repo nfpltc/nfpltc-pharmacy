@@ -51,21 +51,7 @@ export default function AdminContactsPage() {
   const fmt = (d: string) => d ? new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "—"
 
   return (
-    <main className="min-h-screen bg-[#F7F5EF]">
-      <section className="relative isolate overflow-hidden" style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)", padding: "48px 0 56px" }}>
-        <div className="mx-auto w-full max-w-6xl px-6">
-          <Link href="/admin" className="mb-4 inline-flex items-center gap-1.5 text-sm text-white/80 hover:text-white"><ArrowLeft className="h-4 w-4" /> Dashboard</Link>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-white md:text-3xl">Contact Messages</h1>
-              <p className="mt-2 text-white/90">{items.length} total{nc > 0 ? ` · ${nc} new` : ""}</p>
-            </div>
-            {nc > 0 && <span className="rounded-full bg-white/20 px-4 py-2 text-sm font-medium text-white ring-1 ring-white/30">{nc} New</span>}
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto w-full max-w-6xl px-6 py-8">
+    <div>
         {msg && <div className={`mb-6 flex items-center justify-between rounded-lg border p-4 text-sm ${msg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}><span>{msg.text}</span><button onClick={() => setMsg(null)}>×</button></div>}
 
         <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -112,7 +98,7 @@ export default function AdminContactsPage() {
                 </tr>))}</tbody>
             </table></div>
           </div>}
-      </section>
+      
 
       {viewItem && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
         <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl">
@@ -138,6 +124,6 @@ export default function AdminContactsPage() {
           </div>
         </div>
       </div>}
-    </main>
+    </div>
   )
 }
