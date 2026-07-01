@@ -1,5 +1,6 @@
 "use client"
 import { useState } from "react"
+import { encodeCode128, bitsToRects } from "@/lib/barcode"
 import { Printer, Pencil, Check, X, Loader2 } from "lucide-react"
 
 type Item = { id: string; name: string; sku: string; barcode: string; category: string; form?: string; strength?: string; quantity_in_stock: number; quantity_in_transit: number; quantity_damaged: number; reorder_threshold: number; notes?: string }
@@ -8,23 +9,13 @@ type Move = { id: string; action: string; quantity: number; notes?: string; loca
 const ACTION_BADGE: Record<string, string> = { add: "bg-emerald-50 text-emerald-700", sold: "bg-rose-50 text-rose-700", damaged: "bg-amber-50 text-amber-700", transit: "bg-sky-50 text-sky-700" }
 
 function buildBars(code: string) {
-  const bars: { x: number; w: number }[] = []
-  let x = 8
-  for (let i = 0; i < code.length; i++) {
-    const ch = code.charCodeAt(i)
-    for (let b = 0; b < 5; b++) {
-      const w = b % 2 === (ch % 2) ? 4 : 2
-      if (b % 2 === 0) bars.push({ x, w })
-      x += w + 1
-    }
-    x += 3
-  }
-  return { bars, totalW: x + 8 }
+  try { return bitsToRects(encodeCode128(code), 50) }
+  catch { return { rects: [], totalW: 200 } }
 }
 
 function printLabel(item: Item) {
-  const { bars, totalW } = buildBars(item.barcode)
-  const svgBars = bars.map(b => `<rect x="${b.x}" y="2" width="${b.w}" height="48" fill="#111"/>`).join("")
+  const { rects, totalW } = buildBars(item.barcode)
+  const svgBars = rects.map(b => `<rect x="${b.x}" y="2" width="${b.w}" height="48" fill="#111"/>`).join("")
   const svg = `<svg width="100%" viewBox="0 0 ${totalW} 60" xmlns="http://www.w3.org/2000/svg">${svgBars}</svg>`
   const win = window.open("", "_blank")
   if (!win) { alert("Please allow popups to print labels"); return }
@@ -43,7 +34,7 @@ export default function ProductDetailClient({ item: init, movements }: { item: I
   const [form, setForm] = useState({ name: init.name, strength: init.strength || "", form: init.form || "", notes: init.notes || "", reorder_threshold: String(init.reorder_threshold) })
   const [saving, setSaving] = useState(false)
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }))
-  const { bars, totalW } = buildBars(item.barcode)
+  const { rects, totalW } = buildBars(item.barcode)
 
   const save = async () => {
     setSaving(true)
@@ -128,7 +119,7 @@ export default function ProductDetailClient({ item: init, movements }: { item: I
           </div>
           <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 text-center">
             <svg width="100%" viewBox={`0 0 ${totalW} 60`} xmlns="http://www.w3.org/2000/svg">
-              {bars.map((b, i) => <rect key={i} x={b.x} y={2} width={b.w} height={50} fill="#111" />)}
+              {rects.map((b, i) => <rect key={i} x={b.x} y={2} width={b.w} height={50} fill="#111" />)}
             </svg>
             <p className="mt-2 text-xs tracking-widest text-gray-500">{item.barcode}</p>
           </div>
