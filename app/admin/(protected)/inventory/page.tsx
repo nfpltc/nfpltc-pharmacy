@@ -1,165 +1,91 @@
-import Link from "next/link"
-import { cookies } from "next/headers"
-import { createServerClient } from "@supabase/ssr"
 import { createClient } from "@supabase/supabase-js"
-import {
-  ShieldCheck, Users, LogOut, Briefcase, CreditCard, Syringe, MessageSquare,
-  UserCheck, BookOpen, UsersRound, FileStack, Bot, Pill, MessageCircle, Package,
-  AlertTriangle, Truck, Boxes
-} from "lucide-react"
-import { ScanPanel, MovementsTable, ProductsList } from "./InventoryClient"
+import Link from "next/link"
+import { Package, ScanLine, BarChart3, AlertTriangle, Truck, Boxes, ArrowRight, PackagePlus, PackageMinus } from "lucide-react"
 
 export const dynamic = "force-dynamic"
 
-const sidebarLinks = [
-  { href: "/admin",                  label: "Overview",         icon: ShieldCheck,   key: "dashboard" },
-  { href: "/admin/assistant",        label: "AI Assistant",     icon: Bot,           key: "assistant" },
-  { href: "/admin/chats",            label: "Chats",            icon: MessageCircle, key: "chats" },
-  { href: "/admin/enrollments",      label: "Enrollments",      icon: UserCheck,     key: "enrollments" },
-  { href: "/admin/credit-cards",     label: "Credit Cards",     icon: CreditCard,    key: "credit-cards" },
-  { href: "/admin/vaccines",         label: "Vaccines",         icon: Syringe,       key: "vaccines" },
-  { href: "/admin/contacts",         label: "Contacts",         icon: MessageSquare, key: "contacts" },
-  { href: "/admin/jobs",             label: "Jobs",             icon: Briefcase,     key: "jobs" },
-  { href: "/admin/candidates",       label: "Candidates",       icon: Users,         key: "candidates" },
-  { href: "/admin/blogs",            label: "Blog",             icon: BookOpen,      key: "blog" },
-  { href: "/admin/customers",        label: "Customers",        icon: UsersRound,    key: "crm" },
-  { href: "/admin/statements",       label: "Statements",       icon: FileStack,     key: "statements" },
-  { href: "/admin/medication-tasks", label: "Medication Tasks", icon: Pill,          key: "medication-tasks" },
-  { href: "/admin/inventory",        label: "Inventory",        icon: Package,       key: "inventory" },
-  { href: "/admin/users",            label: "User Management",  icon: Users,         key: "users" },
-]
-
-export default async function AdminInventoryPage() {
-  const maybeStore = cookies() as any
-  const cookieStore = typeof maybeStore?.then === "function" ? await maybeStore : maybeStore
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { get: (n: string) => cookieStore.get(n)?.value } }
-  )
-  const { data: { user } } = await supabase.auth.getUser()
-  const displayName = user?.user_metadata?.full_name || user?.email?.split("@")?.[0] || "Admin"
-
-  let allowedPages: string[] | null = null
-  if (user?.email) {
-    try {
-      const adminSb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
-      const { data: au } = await adminSb.from("admin_users").select("role,allowed_pages,active").eq("email", user.email).maybeSingle()
-      if (au && au.role !== "admin") allowedPages = au.active ? au.allowed_pages || [] : []
-    } catch {}
-  }
-  const visibleLinks = allowedPages === null ? sidebarLinks : sidebarLinks.filter(l => l.key === "dashboard" || allowedPages!.includes(l.key))
-
+export default async function InventoryOverviewPage() {
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
-  const [{ data: items }, { data: movements }] = await Promise.all([
-    sb.from("inventory_items").select("*").eq("active", true).order("name").limit(200),
-    sb.from("inventory_movements").select("*, inventory_items(name,sku,barcode)").order("created_at", { ascending: false }).limit(20),
+  const [{ data: items }, { data: moves }] = await Promise.all([
+    sb.from("inventory_items").select("quantity_in_stock,quantity_in_transit,quantity_damaged,reorder_threshold").eq("active", true),
+    sb.from("inventory_movements").select("*, inventory_items(name,sku)").order("created_at", { ascending: false }).limit(8),
   ])
-
   const all = items || []
-  const totalItems   = all.length
-  const lowStock     = all.filter(i => i.quantity_in_stock <= i.reorder_threshold).length
-  const totalTransit = all.reduce((s, i) => s + (i.quantity_in_transit || 0), 0)
-  const totalDamaged = all.reduce((s, i) => s + (i.quantity_damaged || 0), 0)
+  const stats = {
+    total:   all.length,
+    low:     all.filter(i => i.quantity_in_stock <= i.reorder_threshold).length,
+    transit: all.reduce((s, i) => s + (i.quantity_in_transit || 0), 0),
+    damaged: all.reduce((s, i) => s + (i.quantity_damaged || 0), 0),
+  }
+  const cfg: Record<string, { badge: string; sign: string }> = {
+    add: { badge: "bg-emerald-50 text-emerald-700", sign: "+" },
+    sold: { badge: "bg-rose-50 text-rose-700", sign: "-" },
+    damaged: { badge: "bg-amber-50 text-amber-700", sign: "-" },
+    transit: { badge: "bg-sky-50 text-sky-700", sign: "+" },
+  }
 
   return (
-    <main className="min-h-screen bg-[#F7F5EF]">
-      {/* Header */}
-      <section style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}>
-        <div className="mx-auto w-full max-w-6xl px-6 py-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-semibold text-white">Inventory</h1>
-              <p className="mt-0.5 text-sm text-white/75">Welcome back, {displayName}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Link href="/admin" className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-white/10 px-3 text-xs text-white ring-1 ring-white/20 hover:bg-white/20">Dashboard</Link>
-              <Link href="/admin/logout?redirect=/admin/login" className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-white/10 px-3 text-xs text-white ring-1 ring-white/20 hover:bg-red-500/30">
-                <LogOut className="h-3.5 w-3.5" /> Logout
-              </Link>
-            </div>
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        {[
+          { label: "Total Products", value: stats.total,   icon: Boxes,        color: "bg-emerald-100 text-emerald-700" },
+          { label: "Low Stock",      value: stats.low,     icon: AlertTriangle, color: "bg-amber-100 text-amber-700" },
+          { label: "In Transit",     value: stats.transit, icon: Truck,         color: "bg-sky-100 text-sky-700" },
+          { label: "Damaged",        value: stats.damaged, icon: AlertTriangle, color: "bg-rose-100 text-rose-700" },
+        ].map(s => (
+          <div key={s.label} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className={"h-10 w-10 rounded-xl flex items-center justify-center mb-3 " + s.color}><s.icon className="h-5 w-5" /></div>
+            <p className="text-2xl font-bold text-gray-900">{s.value}</p>
+            <p className="text-xs text-gray-500 mt-0.5">{s.label}</p>
           </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <Link href="/admin/inventory/scan" className="flex items-center justify-between rounded-xl border-2 border-[#0B7C79] bg-[#0B7C79] p-5 text-white shadow-sm hover:bg-[#0a6b68] transition-colors group">
+          <div><ScanLine className="h-6 w-6 mb-2" /><p className="font-bold text-base">Scan Session</p><p className="text-sm text-white/70">Scan multiple products at once</p></div>
+          <ArrowRight className="h-5 w-5 text-white/60 group-hover:translate-x-1 transition-transform" />
+        </Link>
+        <Link href="/admin/inventory/products" className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-5 shadow-sm hover:border-emerald-300 transition-all group">
+          <div><Package className="h-6 w-6 text-gray-600 mb-2" /><p className="font-bold text-base text-gray-900">Products</p><p className="text-sm text-gray-500">Manage and print labels</p></div>
+          <ArrowRight className="h-5 w-5 text-gray-400 group-hover:translate-x-1 transition-transform" />
+        </Link>
+        <Link href="/admin/inventory/activity" className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-5 shadow-sm hover:border-emerald-300 transition-all group">
+          <div><BarChart3 className="h-6 w-6 text-gray-600 mb-2" /><p className="font-bold text-base text-gray-900">Activity Log</p><p className="text-sm text-gray-500">Full movement history</p></div>
+          <ArrowRight className="h-5 w-5 text-gray-400 group-hover:translate-x-1 transition-transform" />
+        </Link>
+      </div>
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="text-sm font-semibold text-gray-900">Recent Activity</h2>
+          <Link href="/admin/inventory/activity" className="text-xs text-[#0B7C79] hover:underline">View all</Link>
         </div>
-      </section>
-
-      <section className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 px-6 pt-6 pb-14 md:grid-cols-[200px_1fr]">
-        {/* Sidebar */}
-        <aside>
-          <nav className="rounded-xl border border-gray-200 bg-white p-2 shadow-sm sticky top-4">
-            <ul className="space-y-0.5">
-              {visibleLinks.map(link => (
-                <li key={link.href}>
-                  <Link href={link.href}
-                    className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm ${link.href === "/admin/inventory" ? "bg-emerald-50 font-medium text-emerald-800" : "text-gray-600 hover:bg-gray-50"}`}>
-                    <link.icon className="h-4 w-4 flex-shrink-0" />
-                    <span className="truncate">{link.label}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        </aside>
-
-        {/* Main */}
-        <div className="space-y-5">
-
-          {/* Stat row */}
-          <div className="grid grid-cols-4 gap-3">
-            {[
-              { label: "Products", value: totalItems,   icon: Boxes,         color: "text-emerald-700 bg-emerald-50" },
-              { label: "Low Stock", value: lowStock,    icon: AlertTriangle,  color: "text-amber-700 bg-amber-50" },
-              { label: "In Transit", value: totalTransit, icon: Truck,        color: "text-sky-700 bg-sky-50" },
-              { label: "Damaged",  value: totalDamaged, icon: AlertTriangle,  color: "text-rose-700 bg-rose-50" },
-            ].map(s => (
-              <div key={s.label} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm flex items-center gap-3">
-                <div className={`h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0 ${s.color}`}>
-                  <s.icon className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="text-xl font-bold text-gray-900">{s.value}</p>
-                  <p className="text-xs text-gray-500">{s.label}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Two-column: scan + products */}
-          <div className="grid gap-5 lg:grid-cols-[1fr_1.1fr]">
-
-            {/* LEFT: Scan panel */}
-            <div className="space-y-5">
-              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h2 className="text-sm font-semibold text-gray-900">Scan Barcode</h2>
-                    <p className="text-xs text-gray-500 mt-0.5">USB scanner, camera, or type manually</p>
+        {(!moves || moves.length === 0) ? (
+          <div className="py-10 text-center text-sm text-gray-400">No activity yet — start your first scan session!</div>
+        ) : (
+          <div className="divide-y divide-gray-50">
+            {moves.map((m: any) => {
+              const c = cfg[m.action] || cfg.add
+              const item = m.inventory_items
+              return (
+                <div key={m.id} className="flex items-center gap-4 px-5 py-3">
+                  <div className={"h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 " + (["add","transit"].includes(m.action) ? "bg-emerald-50" : "bg-rose-50")}>
+                    {["add","transit"].includes(m.action) ? <PackagePlus className="h-4 w-4 text-emerald-600" /> : <PackageMinus className="h-4 w-4 text-rose-600" />}
                   </div>
-                  <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">All devices</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{item?.name || "—"}</p>
+                    <p className="text-xs text-gray-400">{item?.sku}</p>
+                  </div>
+                  <div className="text-right">
+                    <span className={"inline-block rounded-full px-2 py-0.5 text-[11px] font-medium " + c.badge}>{m.action}</span>
+                    <p className="text-sm font-bold text-gray-900 mt-0.5">{c.sign}{m.quantity}</p>
+                  </div>
+                  <p className="text-xs text-gray-400 flex-shrink-0">{new Date(m.created_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>
                 </div>
-                <ScanPanel />
-              </div>
-
-              {/* Recent activity */}
-              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-                <h2 className="text-sm font-semibold text-gray-900 mb-4">Recent Activity</h2>
-                <MovementsTable movements={movements || []} />
-              </div>
-            </div>
-
-            {/* RIGHT: Products */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h2 className="text-sm font-semibold text-gray-900">Products</h2>
-                  <p className="text-xs text-gray-500 mt-0.5">Click a product to see its barcode and print label</p>
-                </div>
-              </div>
-              <ProductsList items={all} />
-            </div>
+              )
+            })}
           </div>
-        </div>
-      </section>
-    </main>
+        )}
+      </div>
+    </div>
   )
 }
