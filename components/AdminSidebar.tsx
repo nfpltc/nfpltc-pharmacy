@@ -40,15 +40,8 @@ export default function AdminSidebar({ allowedPages }: { allowedPages: string[] 
   return (
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-56 flex-col border-r border-gray-200 bg-white">
       {/* Logo / Brand */}
-      <div className="flex items-center gap-3 px-5 py-5 border-b border-gray-100">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl text-white text-sm font-bold"
-          style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B7C79 100%)" }}>
-          NF
-        </div>
-        <div>
-          <p className="text-sm font-bold text-gray-900">NFPLTC</p>
-          <p className="text-[10px] uppercase tracking-wider text-gray-400">Admin Portal</p>
-        </div>
+      <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-100">
+        <img src="/logo.svg" alt="NFPLTC" className="h-10 w-auto" />
       </div>
 
       {/* Nav links */}
