@@ -4,10 +4,10 @@ import { createServerClient } from "@supabase/ssr"
 import { createClient } from "@supabase/supabase-js"
 import {
   ShieldCheck, Users, LogOut, Briefcase, CreditCard, Syringe, MessageSquare,
-  UserCheck, BookOpen, UsersRound, FileStack, Bot, Pill, MessageCircle,
-  Package, Barcode, ScanLine, Truck, AlertTriangle, Boxes,
+  UserCheck, BookOpen, UsersRound, FileStack, Bot, Pill, MessageCircle, Package,
+  AlertTriangle, Truck, Boxes
 } from "lucide-react"
-import { ScanPanel, BarcodePanel, MovementsTable, ProductsList } from "./InventoryClient"
+import { ScanPanel, MovementsTable, ProductsList } from "./InventoryClient"
 
 export const dynamic = "force-dynamic"
 
@@ -38,102 +38,62 @@ export default async function AdminInventoryPage() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { get: (n: string) => cookieStore.get(n)?.value } }
   )
-
   const { data: { user } } = await supabase.auth.getUser()
   const displayName = user?.user_metadata?.full_name || user?.email?.split("@")?.[0] || "Admin"
 
-  // Permission check
   let allowedPages: string[] | null = null
   if (user?.email) {
     try {
-      const adminSb = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        { auth: { persistSession: false, autoRefreshToken: false } }
-      )
-      const { data: adminUser } = await adminSb
-        .from("admin_users").select("role, allowed_pages, active").eq("email", user.email).maybeSingle()
-      if (adminUser && adminUser.role !== "admin") {
-        allowedPages = adminUser.active ? adminUser.allowed_pages || [] : []
-      }
+      const adminSb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
+      const { data: au } = await adminSb.from("admin_users").select("role,allowed_pages,active").eq("email", user.email).maybeSingle()
+      if (au && au.role !== "admin") allowedPages = au.active ? au.allowed_pages || [] : []
     } catch {}
   }
-  const visibleLinks = allowedPages === null
-    ? sidebarLinks
-    : sidebarLinks.filter(l => l.key === "dashboard" || allowedPages!.includes(l.key))
+  const visibleLinks = allowedPages === null ? sidebarLinks : sidebarLinks.filter(l => l.key === "dashboard" || allowedPages!.includes(l.key))
 
-  // ── Real data from Supabase ────────────────────────────────────────────────
-  const sb = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } }
-  )
-
-  const [
-    { data: items },
-    { data: movements },
-  ] = await Promise.all([
+  const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
+  const [{ data: items }, { data: movements }] = await Promise.all([
     sb.from("inventory_items").select("*").eq("active", true).order("name").limit(200),
-    sb.from("inventory_movements").select("*, inventory_items(name, sku, barcode)").order("created_at", { ascending: false }).limit(30),
+    sb.from("inventory_movements").select("*, inventory_items(name,sku,barcode)").order("created_at", { ascending: false }).limit(20),
   ])
 
-  const allItems = items || []
-  const allMovements = movements || []
-
-  const totalItems    = allItems.length
-  const lowStock      = allItems.filter(i => i.quantity_in_stock <= i.reorder_threshold).length
-  const totalTransit  = allItems.reduce((s, i) => s + (i.quantity_in_transit || 0), 0)
-  const totalDamaged  = allItems.reduce((s, i) => s + (i.quantity_damaged || 0), 0)
-
-  const stats = [
-    { title: "Total Products",  value: totalItems,   note: "Active tracked items",     icon: Boxes,         tone: "emerald" },
-    { title: "Low Stock",       value: lowStock,      note: "At or below reorder level", icon: AlertTriangle, tone: "amber" },
-    { title: "In Transit",      value: totalTransit,  note: "Units incoming",            icon: Truck,         tone: "sky" },
-    { title: "Damaged",         value: totalDamaged,  note: "Awaiting review",           icon: AlertTriangle, tone: "rose" },
-  ]
-
-  function toneCls(tone: string) {
-    switch (tone) {
-      case "amber":  return { icon: "bg-amber-100 text-amber-700" }
-      case "rose":   return { icon: "bg-rose-100 text-rose-700" }
-      case "sky":    return { icon: "bg-sky-100 text-sky-700" }
-      default:       return { icon: "bg-emerald-100 text-emerald-700" }
-    }
-  }
+  const all = items || []
+  const totalItems   = all.length
+  const lowStock     = all.filter(i => i.quantity_in_stock <= i.reorder_threshold).length
+  const totalTransit = all.reduce((s, i) => s + (i.quantity_in_transit || 0), 0)
+  const totalDamaged = all.reduce((s, i) => s + (i.quantity_damaged || 0), 0)
 
   return (
     <main className="min-h-screen bg-[#F7F5EF]">
       {/* Header */}
-      <section className="relative isolate overflow-hidden"
-        style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)", paddingTop: 32, paddingBottom: 44 }}>
-        <div className="mx-auto w-full max-w-6xl px-6">
+      <section style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}>
+        <div className="mx-auto w-full max-w-6xl px-6 py-6">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h1 className="text-2xl font-semibold text-white md:text-3xl">Inventory Center</h1>
-              <p className="mt-1 text-sm text-white/85">Barcode creation, scan actions, stock updates and print tools.</p>
-              <p className="mt-2 text-xs text-white/70">Welcome back, {displayName}</p>
+              <h1 className="text-xl font-semibold text-white">Inventory</h1>
+              <p className="mt-0.5 text-sm text-white/75">Welcome back, {displayName}</p>
             </div>
-            <div className="hidden items-center gap-2 md:flex">
-              <Link href="/admin" className="inline-flex h-9 items-center gap-2 rounded-md bg-white/10 px-3 text-sm text-white ring-1 ring-white/20 hover:bg-white/20">Dashboard</Link>
-              <Link href="/admin/logout?redirect=/admin/login" className="inline-flex h-9 items-center gap-2 rounded-md bg-white/10 px-3 text-sm text-white ring-1 ring-white/20 hover:bg-red-500/30">
-                <LogOut className="h-4 w-4" /> Logout
+            <div className="flex items-center gap-2">
+              <Link href="/admin" className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-white/10 px-3 text-xs text-white ring-1 ring-white/20 hover:bg-white/20">Dashboard</Link>
+              <Link href="/admin/logout?redirect=/admin/login" className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-white/10 px-3 text-xs text-white ring-1 ring-white/20 hover:bg-red-500/30">
+                <LogOut className="h-3.5 w-3.5" /> Logout
               </Link>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-8 px-6 pt-8 pb-16 md:grid-cols-[220px_1fr]">
+      <section className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 px-6 pt-6 pb-14 md:grid-cols-[200px_1fr]">
         {/* Sidebar */}
         <aside>
-          <nav className="rounded-xl border border-emerald-900/10 bg-white p-2 shadow-sm">
-            <ul className="space-y-1">
+          <nav className="rounded-xl border border-gray-200 bg-white p-2 shadow-sm sticky top-4">
+            <ul className="space-y-0.5">
               {visibleLinks.map(link => (
                 <li key={link.href}>
                   <Link href={link.href}
-                    className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm ${link.href === "/admin/inventory" ? "bg-emerald-50 font-medium text-emerald-800" : "text-gray-700 hover:bg-emerald-50"}`}>
-                    <link.icon className="h-4 w-4" />
-                    {link.label}
+                    className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm ${link.href === "/admin/inventory" ? "bg-emerald-50 font-medium text-emerald-800" : "text-gray-600 hover:bg-gray-50"}`}>
+                    <link.icon className="h-4 w-4 flex-shrink-0" />
+                    <span className="truncate">{link.label}</span>
                   </Link>
                 </li>
               ))}
@@ -141,57 +101,63 @@ export default async function AdminInventoryPage() {
           </nav>
         </aside>
 
-        {/* Main content */}
-        <div className="space-y-8">
-          {/* Intro banner */}
-          <section className="rounded-2xl border border-emerald-900/10 bg-white p-6 shadow-sm">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-emerald-700">Inventory workflow</p>
-              <h2 className="mt-2 text-xl font-semibold text-gray-900">Scan, label, and update stock faster</h2>
-              <p className="mt-2 text-sm text-gray-600">Use any USB barcode scanner, mobile camera, or Bluetooth scanner. Works on every device.</p>
-            </div>
-          </section>
+        {/* Main */}
+        <div className="space-y-5">
 
-          {/* Stat cards */}
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {stats.map(card => {
-              const t = toneCls(card.tone)
-              return (
-                <div key={card.title} className="rounded-xl border border-emerald-900/10 bg-white p-5 shadow-sm">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">{card.title}</p>
-                      <p className="mt-2 text-2xl font-semibold text-gray-900">{card.value}</p>
-                      <p className="mt-1 text-xs text-gray-500">{card.note}</p>
-                    </div>
-                    <div className={`inline-flex h-10 w-10 items-center justify-center rounded-lg ${t.icon}`}>
-                      <card.icon className="h-5 w-5" />
-                    </div>
-                  </div>
+          {/* Stat row */}
+          <div className="grid grid-cols-4 gap-3">
+            {[
+              { label: "Products", value: totalItems,   icon: Boxes,         color: "text-emerald-700 bg-emerald-50" },
+              { label: "Low Stock", value: lowStock,    icon: AlertTriangle,  color: "text-amber-700 bg-amber-50" },
+              { label: "In Transit", value: totalTransit, icon: Truck,        color: "text-sky-700 bg-sky-50" },
+              { label: "Damaged",  value: totalDamaged, icon: AlertTriangle,  color: "text-rose-700 bg-rose-50" },
+            ].map(s => (
+              <div key={s.label} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm flex items-center gap-3">
+                <div className={`h-9 w-9 rounded-lg flex items-center justify-center flex-shrink-0 ${s.color}`}>
+                  <s.icon className="h-4 w-4" />
                 </div>
-              )
-            })}
-          </section>
-
-          {/* Scan panel + barcode tools side by side */}
-          <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-            <ScanPanel />
-            <BarcodePanel items={allItems} />
-          </section>
-
-          {/* Recent movements + products list */}
-          <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-            <div className="rounded-2xl border border-emerald-900/10 bg-white p-6 shadow-sm">
-              <div className="mb-4 flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Recent Inventory Activity</h3>
-                  <p className="mt-1 text-sm text-gray-600">Latest stock movements from barcode scans and updates.</p>
+                  <p className="text-xl font-bold text-gray-900">{s.value}</p>
+                  <p className="text-xs text-gray-500">{s.label}</p>
                 </div>
               </div>
-              <MovementsTable movements={allMovements} />
+            ))}
+          </div>
+
+          {/* Two-column: scan + products */}
+          <div className="grid gap-5 lg:grid-cols-[1fr_1.1fr]">
+
+            {/* LEFT: Scan panel */}
+            <div className="space-y-5">
+              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="text-sm font-semibold text-gray-900">Scan Barcode</h2>
+                    <p className="text-xs text-gray-500 mt-0.5">USB scanner, camera, or type manually</p>
+                  </div>
+                  <span className="text-[10px] font-medium text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">All devices</span>
+                </div>
+                <ScanPanel />
+              </div>
+
+              {/* Recent activity */}
+              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                <h2 className="text-sm font-semibold text-gray-900 mb-4">Recent Activity</h2>
+                <MovementsTable movements={movements || []} />
+              </div>
             </div>
-            <ProductsList items={allItems} />
-          </section>
+
+            {/* RIGHT: Products */}
+            <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">Products</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">Click a product to see its barcode and print label</p>
+                </div>
+              </div>
+              <ProductsList items={all} />
+            </div>
+          </div>
         </div>
       </section>
     </main>
