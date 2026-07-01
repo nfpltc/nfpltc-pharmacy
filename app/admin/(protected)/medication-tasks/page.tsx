@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { ArrowLeft, Pill, Plus, X, Loader2, CheckCircle2, Clock, Ban, Trash2, Mail, Users, Search, Sparkles, Pencil, Download, Upload, FolderClock, CheckSquare, Square } from "lucide-react"
+import { Pill, Plus, X, Loader2, CheckCircle2, Clock, Ban, Trash2, Mail, Users, Search, Sparkles, Pencil, Download, Upload, FolderClock, CheckSquare, Square } from "lucide-react"
 
 interface Recipient { email: string; name?: string; notified_at?: string; clicked_at?: string }
 interface Task {
@@ -160,48 +160,7 @@ John Smith,10012345,Omeprazole 20mg,1 capsule,2026-07-01 07:00,Before breakfast,
   }
 
   return (
-    <main className="min-h-screen bg-[#F7F5EF]">
-      <section className="relative overflow-hidden" style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}>
-        <div className="mx-auto w-full max-w-5xl px-6 py-8">
-          <Link href="/admin" className="mb-2 inline-flex items-center gap-1 text-sm text-white/90 hover:text-white">
-            <ArrowLeft className="h-4 w-4" /> Dashboard
-          </Link>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h1 className="flex items-center gap-2 text-2xl font-semibold text-white md:text-3xl">
-                <Pill className="h-7 w-7" /> Medication Tasks
-              </h1>
-              <p className="mt-1 text-sm text-white/85">Assign medication tasks and track completion.</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button onClick={() => setShowDefaults(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white hover:bg-white/25">
-                <Users className="h-4 w-4" /> Recipients
-              </button>
-              <button onClick={() => setShowCatalog(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white hover:bg-white/25">
-                <Pill className="h-4 w-4" /> Medications
-              </button>
-              <button onClick={exportCSV} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white hover:bg-white/25">
-                <Download className="h-4 w-4" /> Export
-              </button>
-              <button onClick={() => setShowImport(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white hover:bg-white/25">
-                <Upload className="h-4 w-4" /> Import
-              </button>
-              <button onClick={() => setShowBatches(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-2 text-sm font-medium text-white hover:bg-white/25">
-                <FolderClock className="h-4 w-4" /> Uploads
-              </button>
-              <button onClick={() => { setBulkMode(!bulkMode); setSelectedIds(new Set()) }}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium ${bulkMode ? "bg-white text-[#0B7C79]" : "bg-white/15 text-white hover:bg-white/25"}`}>
-                <CheckSquare className="h-4 w-4" /> {bulkMode ? "Cancel Select" : "Select"}
-              </button>
-              <button onClick={() => setShowForm(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-white px-4 py-2 text-sm font-medium text-[#0B7C79] hover:bg-gray-50">
-                <Plus className="h-4 w-4" /> New Task
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto w-full max-w-5xl px-6 py-6">
+    <div>
         {msg && (
           <div className="mb-4 flex items-center justify-between rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
             <span>{msg}</span><button onClick={() => setMsg("")}>×</button>
@@ -263,7 +222,7 @@ John Smith,10012345,Omeprazole 20mg,1 capsule,2026-07-01 07:00,Before breakfast,
             {filteredTasks.map(t => <TaskCard key={t.id} t={t} expanded={expandedTask === t.id} onToggleExpand={() => setExpandedTask(expandedTask === t.id ? null : t.id)} bulkMode={bulkMode} selected={selectedIds.has(t.id)} onToggleSelect={() => toggleSelect(t.id)} onComplete={() => markComplete(t.id)} onCancel={() => cancelTask(t.id)} onEdit={() => setEditing(t)} onDelete={() => deleteTask(t.id)} />)}
           </div>
         )}
-      </section>
+      
 
       {showForm && <NewTaskModal onClose={() => setShowForm(false)} onCreated={(m) => { setShowForm(false); setMsg(m); setFilter("pending"); load() }} />}
       {editing && <EditTaskModal task={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); setMsg("Task updated ✓"); load() }} />}
@@ -271,7 +230,7 @@ John Smith,10012345,Omeprazole 20mg,1 capsule,2026-07-01 07:00,Before breakfast,
       {showCatalog && <CatalogModal onClose={() => setShowCatalog(false)} />}
       {showBatches && <BatchesModal onClose={() => setShowBatches(false)} onDeleted={(m) => { setMsg(m); load() }} />}
       {showDefaults && <DefaultsModal onClose={() => setShowDefaults(false)} />}
-    </main>
+    </div>
   )
 }
 
