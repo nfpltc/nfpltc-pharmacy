@@ -103,21 +103,7 @@ export default function AdminJobsPage() {
     d: jobs.filter(j => j.status === "draft").length, x: jobs.filter(j => j.status === "closed").length }
 
   return (
-    <main className="min-h-screen bg-[#F7F5EF]">
-      <section className="relative isolate overflow-hidden" style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)", padding: "48px 0 56px" }}>
-        <div className="mx-auto w-full max-w-6xl px-6">
-          <Link href="/admin" className="mb-4 inline-flex items-center gap-1.5 text-sm text-white/80 hover:text-white"><ArrowLeft className="h-4 w-4" /> Dashboard</Link>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-white md:text-3xl">Job Postings</h1>
-              <p className="mt-2 text-white/90">{c.t} total · {c.a} active · {c.d} draft · {c.x} closed</p>
-            </div>
-            <button onClick={() => { close(); setShowForm(true) }} className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-white/20 px-4 py-2.5 text-sm font-medium text-white ring-1 ring-white/30 hover:bg-white/30">+ Post New Job</button>
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto w-full max-w-6xl px-6 py-8">
+    <div>
         {msg && <div className={`mb-6 flex items-center justify-between rounded-lg border p-4 text-sm ${msg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}><span>{msg.text}</span><button onClick={() => setMsg(null)}>×</button></div>}
 
         <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -156,7 +142,7 @@ export default function AdminJobsPage() {
                 </div>
               </div>
             </div>))}</div>}
-      </section>
+      
 
       {showForm && <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4">
         <div className="my-8 w-full max-w-2xl rounded-xl bg-white p-6">
@@ -186,6 +172,6 @@ export default function AdminJobsPage() {
           </form>
         </div>
       </div>}
-    </main>
+    </div>
   )
 }
