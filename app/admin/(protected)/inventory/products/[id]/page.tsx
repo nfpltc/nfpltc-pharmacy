@@ -6,12 +6,13 @@ import ProductDetailClient from "./ProductDetailClient"
 
 export const dynamic = "force-dynamic"
 
-export default async function ProductDetailPage({ params }: { params: { id: string } }) {
+export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
 
   const [{ data: item }, { data: moves }] = await Promise.all([
-    sb.from("inventory_items").select("*").eq("id", params.id).maybeSingle(),
-    sb.from("inventory_movements").select("*").eq("item_id", params.id).order("created_at", { ascending: false }).limit(50),
+    sb.from("inventory_items").select("*").eq("id", id).maybeSingle(),
+    sb.from("inventory_movements").select("*").eq("item_id", id).order("created_at", { ascending: false }).limit(50),
   ])
 
   if (!item) notFound()
