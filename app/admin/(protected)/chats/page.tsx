@@ -303,55 +303,27 @@ export default function AdminChatsPage() {
     : convs
 
   return (
-    <main className="fixed inset-0 z-50 flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#F7F5EF]">
-      <div
-        className="flex flex-none items-center justify-between px-4 py-3 shadow-sm"
-        style={{
-          background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)",
-        }}
-      >
-        <div className="flex min-w-0 items-center gap-3">
-          <Link href="/admin" className="text-white/80 hover:text-white">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-
-          <div className="min-w-0">
-            <h1 className="flex items-center gap-2 truncate text-lg font-semibold text-white">
-              <MessageCircle className="h-5 w-5 flex-shrink-0" />
-              Chats
-            </h1>
-            <p className="truncate text-xs text-white/70">
-              {stats.total_conversations} total · {stats.today} today
-            </p>
-          </div>
-        </div>
-
+    <div>
+      {/* Chat controls bar */}
+      <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+        <p className="text-sm text-gray-500">
+          {stats.total_conversations} total · {stats.today} today
+        </p>
         <div className="flex items-center gap-2">
           <button
             onClick={() => toggleSetting("visible")}
             disabled={toggling}
-            className={`rounded-lg px-2.5 py-1 text-xs font-medium ${
-              chatVisible ? "bg-white/20 text-white" : "bg-white/10 text-white/60"
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium border ${
+              chatVisible ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-gray-200 bg-gray-50 text-gray-500"
             }`}
           >
-            {chatVisible ? (
-              <>
-                <Eye className="mr-1 inline h-3 w-3" />
-                Visible
-              </>
-            ) : (
-              <>
-                <EyeOff className="mr-1 inline h-3 w-3" />
-                Hidden
-              </>
-            )}
+            {chatVisible ? <><Eye className="mr-1 inline h-3 w-3" />Visible</> : <><EyeOff className="mr-1 inline h-3 w-3" />Hidden</>}
           </button>
-
           <button
             onClick={() => toggleSetting("enabled")}
             disabled={toggling}
-            className={`rounded-lg px-2.5 py-1 text-xs font-medium ${
-              chatEnabled ? "bg-white/20 text-white" : "bg-white/10 text-white/60"
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium border ${
+              chatEnabled ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-gray-200 bg-gray-50 text-gray-500"
             }`}
           >
             <Power className="mr-1 inline h-3 w-3" />
@@ -360,7 +332,8 @@ export default function AdminChatsPage() {
         </div>
       </div>
 
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      {/* Chat split layout */}
+      <div className="flex overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm" style={{ height: "calc(100vh - 200px)" }}>
         <aside className="flex h-full w-80 flex-shrink-0 flex-col overflow-hidden border-r border-gray-200 bg-white">
           <div className="flex flex-none border-b border-gray-100 text-xs">
             {[
@@ -698,7 +671,7 @@ export default function AdminChatsPage() {
           )}
         </section>
       </div>
-    </main>
+    </div>
   )
 }
 
