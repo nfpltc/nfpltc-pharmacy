@@ -5,7 +5,7 @@ import Link from "next/link"
 import {
   ShieldCheck, Users, LogOut, Briefcase, CreditCard, Syringe, MessageSquare,
   UserCheck, BookOpen, UsersRound, FileStack, Bot, Pill, MessageCircle, Package,
-  LayoutDashboard, ScanLine, BarChart3, ClipboardList
+  LayoutDashboard, ScanLine, BarChart3
 } from "lucide-react"
 import FloatingScanButton from "./FloatingScanButton"
 
@@ -30,13 +30,15 @@ const adminSidebar = [
 ]
 
 const inventoryNav = [
-  { href: "/admin/inventory",          label: "Overview",    icon: LayoutDashboard },
-  { href: "/admin/inventory/scan",     label: "Scan",        icon: ScanLine },
-  { href: "/admin/inventory/products", label: "Products",    icon: Package },
-  { href: "/admin/inventory/activity", label: "Activity",    icon: BarChart3 },
+  { href: "/admin/inventory",          label: "Overview",  icon: LayoutDashboard },
+  { href: "/admin/inventory/scan",     label: "Scan",      icon: ScanLine },
+  { href: "/admin/inventory/products", label: "Products",  icon: Package },
+  { href: "/admin/inventory/activity", label: "Activity",  icon: BarChart3 },
 ]
 
 export default async function InventoryLayout({ children }: { children: React.ReactNode }) {
+  // Get current user - the parent (protected) layout already verified auth,
+  // so here we just read the session to get display name + permissions.
   const maybeStore = cookies() as any
   const cookieStore = typeof maybeStore?.then === "function" ? await maybeStore : maybeStore
 
@@ -48,15 +50,29 @@ export default async function InventoryLayout({ children }: { children: React.Re
   const { data: { user } } = await supabase.auth.getUser()
   const displayName = user?.user_metadata?.full_name || user?.email?.split("@")?.[0] || "Admin"
 
+  // Permission filtering for sidebar (best-effort, non-blocking)
   let allowedPages: string[] | null = null
   if (user?.email) {
     try {
-      const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false, autoRefreshToken: false } })
-      const { data: au } = await sb.from("admin_users").select("role,allowed_pages,active").eq("email", user.email).maybeSingle()
-      if (au && au.role !== "admin") allowedPages = au.active ? au.allowed_pages || [] : []
+      const sb = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { persistSession: false, autoRefreshToken: false } }
+      )
+      const { data: au } = await sb
+        .from("admin_users")
+        .select("role,allowed_pages,active")
+        .eq("email", user.email)
+        .maybeSingle()
+      if (au && au.role !== "admin") {
+        allowedPages = au.active ? au.allowed_pages || [] : []
+      }
     } catch {}
   }
-  const visibleAdmin = allowedPages === null ? adminSidebar : adminSidebar.filter(l => l.key === "dashboard" || allowedPages!.includes(l.key))
+
+  const visibleAdmin = allowedPages === null
+    ? adminSidebar
+    : adminSidebar.filter(l => l.key === "dashboard" || allowedPages!.includes(l.key))
 
   return (
     <main className="min-h-screen bg-[#F7F5EF]">
@@ -75,13 +91,14 @@ export default async function InventoryLayout({ children }: { children: React.Re
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-white/60">{displayName}</span>
-            <Link href="/admin/logout?redirect=/admin/login" className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-white/10 px-3 text-xs text-white ring-1 ring-white/20 hover:bg-red-500/30">
+            <Link href="/admin/logout?redirect=/admin/login"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-white/10 px-3 text-xs text-white ring-1 ring-white/20 hover:bg-red-500/30">
               <LogOut className="h-3.5 w-3.5" /> Logout
             </Link>
           </div>
         </div>
-        {/* Inventory sub-nav */}
-        <div className="mx-auto w-full max-w-7xl px-6 pb-0">
+        {/* Inventory sub-nav tabs */}
+        <div className="mx-auto w-full max-w-7xl px-6">
           <nav className="flex gap-0">
             {inventoryNav.map(n => (
               <Link key={n.href} href={n.href}
@@ -99,7 +116,9 @@ export default async function InventoryLayout({ children }: { children: React.Re
         {/* Admin sidebar */}
         <aside className="hidden lg:block">
           <nav className="rounded-xl border border-gray-200 bg-white p-2 shadow-sm sticky top-4">
-            <p className="px-3 pt-1 pb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Admin Menu</p>
+            <p className="px-3 pt-1 pb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+              Admin Menu
+            </p>
             <ul className="space-y-0.5">
               {visibleAdmin.map(link => (
                 <li key={link.href}>
@@ -118,7 +137,7 @@ export default async function InventoryLayout({ children }: { children: React.Re
         <div>{children}</div>
       </div>
 
-      {/* Floating scan button (shown on all inventory pages except the scan page itself) */}
+      {/* Floating scan button */}
       <FloatingScanButton />
     </main>
   )
