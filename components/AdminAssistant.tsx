@@ -56,7 +56,7 @@ export default function AdminAssistant() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-220px)] min-h-[500px] flex-col rounded-xl border border-gray-200 bg-white shadow-sm">
+    <div className="flex h-[calc(100vh-120px)] min-h-[500px] flex-col rounded-xl border border-gray-200 bg-white shadow-sm">
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
         {messages.length === 0 && (
