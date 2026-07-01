@@ -4,6 +4,7 @@ import { createServerClient } from "@supabase/ssr"
 // Maps each protected admin path to the permission key required to view it.
 // Keep in sync with ALL_PAGES in app/api/admin/users/route.ts
 const PATH_PAGE_MAP: { prefix: string; key: string }[] = [
+  { prefix: "/admin/inventory", key: "inventory" },
   { prefix: "/admin/users", key: "users" },
   { prefix: "/admin/assistant", key: "assistant" },
   { prefix: "/admin/chats", key: "chats" },
