@@ -1,28 +1,24 @@
 "use client"
 import { useState } from "react"
+import { encodeCode128, bitsToRects } from "@/lib/barcode"
 import Link from "next/link"
 import { Search, Plus, Printer, X, Check, Loader2, ArrowRight, Trash2, Barcode } from "lucide-react"
 
 type Item = { id: string; name: string; sku: string; barcode: string; category: string; form?: string; strength?: string; quantity_in_stock: number; quantity_in_transit: number; quantity_damaged: number; reorder_threshold: number }
 
 function buildBars(code: string) {
-  const bars: { x: number; w: number }[] = []
-  let x = 8
-  for (let i = 0; i < code.length; i++) {
-    const ch = code.charCodeAt(i)
-    for (let b = 0; b < 5; b++) {
-      const w = b % 2 === (ch % 2) ? 4 : 2
-      if (b % 2 === 0) bars.push({ x, w })
-      x += w + 1
-    }
-    x += 3
+  try {
+    const bits = encodeCode128(code)
+    return bitsToRects(bits, 48)
+  } catch {
+    // fallback for any encoding error
+    return { rects: [], totalW: 200 }
   }
-  return { bars, totalW: x + 8 }
 }
 
 function printLabel(item: Item) {
-  const { bars, totalW } = buildBars(item.barcode)
-  const svgBars = bars.map(b => `<rect x="${b.x}" y="2" width="${b.w}" height="48" fill="#111"/>`).join("")
+  const { rects, totalW } = buildBars(item.barcode)
+  const svgBars = rects.map(b => `<rect x="${b.x}" y="2" width="${b.w}" height="48" fill="#111"/>`).join("")
   const svg = `<svg width="100%" viewBox="0 0 ${totalW} 60" xmlns="http://www.w3.org/2000/svg">${svgBars}</svg>`
   const win = window.open("", "_blank")
   if (!win) { alert("Please allow popups to print labels"); return }
@@ -156,7 +152,7 @@ export default function ProductsClient({ items: init }: { items: Item[] }) {
                   <p className="font-bold text-gray-900">{newItem.name}</p>
                   {newItem.strength && <p className="text-xs text-gray-500 mt-0.5">{newItem.strength}</p>}
                   <p className="text-xs text-gray-400 mb-4">SKU: {newItem.sku}</p>
-                  {(() => { const { bars, totalW } = buildBars(newItem.barcode); return <svg width="100%" viewBox={`0 0 ${totalW} 52`} xmlns="http://www.w3.org/2000/svg">{bars.map((b,i) => <rect key={i} x={b.x} y={1} width={b.w} height={46} fill="#111" />)}</svg> })()}
+                  {(() => { const { rects, totalW } = buildBars(newItem.barcode); return <svg width="100%" viewBox={`0 0 ${totalW} 52`} xmlns="http://www.w3.org/2000/svg">{rects.map((b,i) => <rect key={i} x={b.x} y={1} width={b.w} height={46} fill="#111" />)}</svg> })()}
                   <p className="text-xs tracking-widest text-gray-500 mt-1">{newItem.barcode}</p>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-2">
