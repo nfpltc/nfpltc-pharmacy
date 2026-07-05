@@ -4,9 +4,12 @@ import { useEffect, useRef, useState } from "react"
 import {
   Share2, Sparkles, Image as ImageIcon, X, Send, Loader2,
   Instagram, Facebook, Linkedin, CheckCircle2, AlertCircle, Clock, FileText,
+  Upload, LayoutTemplate, Wand2,
 } from "lucide-react"
 
 type Platform = "facebook" | "instagram" | "linkedin"
+type ImgSource = "upload" | "template" | "ai"
+type HealthTemplate = "tip_card" | "food_as_medicine" | "quote_card"
 type Post = {
   id: string
   caption: string
@@ -22,12 +25,30 @@ const PLATFORMS: { id: Platform; label: string; icon: any }[] = [
   { id: "linkedin", label: "LinkedIn", icon: Linkedin },
 ]
 
+const TEMPLATES: { id: HealthTemplate; label: string }[] = [
+  { id: "tip_card", label: "Wellness tips" },
+  { id: "food_as_medicine", label: "Food as medicine" },
+  { id: "quote_card", label: "Quote / announcement" },
+]
+
+const IMG_SOURCES: { id: ImgSource; label: string; icon: any }[] = [
+  { id: "upload", label: "Upload", icon: Upload },
+  { id: "template", label: "Template", icon: LayoutTemplate },
+  { id: "ai", label: "AI image", icon: Wand2 },
+]
+
 export default function SocialPage() {
   const [caption, setCaption] = useState("")
   const [selected, setSelected] = useState<Platform[]>(["facebook", "instagram"])
   const [topic, setTopic] = useState("")
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [genUrl, setGenUrl] = useState<string | null>(null)      // generated + re-hosted image URL
+  const [imgSource, setImgSource] = useState<ImgSource>("upload")
+  const [template, setTemplate] = useState<HealthTemplate>("tip_card")
+  const [imgTopic, setImgTopic] = useState("")
+  const [aiPrompt, setAiPrompt] = useState("")
+  const [genLoading, setGenLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [posting, setPosting] = useState(false)
   const [msg, setMsg] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null)
@@ -55,14 +76,48 @@ export default function SocialPage() {
   function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
     if (!f) return
+    setGenUrl(null)
     setImageFile(f)
     setImagePreview(URL.createObjectURL(f))
   }
 
   function clearImage() {
     setImageFile(null)
+    setGenUrl(null)
     setImagePreview(null)
     if (fileRef.current) fileRef.current.value = ""
+  }
+
+  // Generate an image (HTML template or AI), re-hosted in Supabase, and preview it.
+  async function generateImage() {
+    const payload =
+      imgSource === "ai"
+        ? { mode: "ai", prompt: aiPrompt }
+        : { mode: "template", template, topic: imgTopic }
+    if (imgSource === "ai" ? !aiPrompt.trim() : !imgTopic.trim()) {
+      setMsg({ type: "error", text: "Describe the image first." }); return
+    }
+    setGenLoading(true); setMsg(null)
+    try {
+      const res = await fetch("/api/admin/social/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (res.ok && data.image_url) {
+        setImageFile(null)
+        setGenUrl(data.image_url)
+        setImagePreview(data.image_url)
+        if (data.warning) setMsg({ type: "info", text: data.warning })
+      } else {
+        setMsg({ type: "error", text: data.error || "Could not create image." })
+      }
+    } catch {
+      setMsg({ type: "error", text: "Could not reach the image service." })
+    } finally {
+      setGenLoading(false)
+    }
   }
 
   async function generateCaption() {
@@ -88,7 +143,7 @@ export default function SocialPage() {
     setMsg(null)
     if (!caption.trim()) { setMsg({ type: "error", text: "Please write a caption." }); return }
     if (selected.length === 0) { setMsg({ type: "error", text: "Pick at least one platform." }); return }
-    if (selected.includes("instagram") && !imageFile) {
+    if (selected.includes("instagram") && !imageFile && !genUrl) {
       setMsg({ type: "error", text: "Instagram needs an image. Add one, or uncheck Instagram." }); return
     }
     setPosting(true)
@@ -97,12 +152,13 @@ export default function SocialPage() {
       form.set("caption", caption)
       form.set("platforms", selected.join(","))
       if (imageFile) form.set("image", imageFile)
+      else if (genUrl) form.set("image_url", genUrl)
 
       const res = await fetch("/api/admin/social/post", { method: "POST", body: form })
       const data = await res.json()
       if (res.ok) {
         setMsg({ type: data.draft ? "info" : "success", text: data.message || "Posted!" })
-        setCaption(""); setTopic(""); clearImage()
+        setCaption(""); setTopic(""); setImgTopic(""); setAiPrompt(""); clearImage()
         loadHistory()
       } else {
         setMsg({ type: "error", text: data.error || "Failed to post." })
@@ -195,20 +251,73 @@ export default function SocialPage() {
           {/* Image */}
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-700">Image {selected.includes("instagram") && <span className="text-red-500">(required for Instagram)</span>}</label>
+
             {imagePreview ? (
               <div className="relative inline-block">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={imagePreview} alt="preview" className="max-h-48 rounded-lg border border-gray-200" />
+                <img src={imagePreview} alt="preview" className="max-h-56 rounded-lg border border-gray-200" />
                 <button type="button" onClick={clearImage}
                   className="absolute -right-2 -top-2 rounded-full bg-white p-1 text-gray-500 shadow ring-1 ring-gray-200 hover:text-red-600">
                   <X className="h-4 w-4" />
                 </button>
               </div>
             ) : (
-              <button type="button" onClick={() => fileRef.current?.click()}
-                className="inline-flex items-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-3 text-sm text-gray-500 hover:border-emerald-400 hover:text-emerald-700">
-                <ImageIcon className="h-4 w-4" /> Add an image
-              </button>
+              <div className="rounded-xl border border-gray-200 p-3">
+                {/* Source tabs */}
+                <div className="mb-3 inline-flex rounded-lg border border-gray-200 p-1">
+                  {IMG_SOURCES.map(({ id, label, icon: Icon }) => (
+                    <button key={id} type="button" onClick={() => setImgSource(id)}
+                      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                        imgSource === id ? "bg-emerald-600 text-white" : "text-gray-500 hover:text-gray-800"
+                      }`}>
+                      <Icon className="h-3.5 w-3.5" /> {label}
+                    </button>
+                  ))}
+                </div>
+
+                {imgSource === "upload" && (
+                  <button type="button" onClick={() => fileRef.current?.click()}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-sm text-gray-500 hover:border-emerald-400 hover:text-emerald-700">
+                    <ImageIcon className="h-4 w-4" /> Choose an image file
+                  </button>
+                )}
+
+                {imgSource === "template" && (
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {TEMPLATES.map((t) => (
+                        <button key={t.id} type="button" onClick={() => setTemplate(t.id)}
+                          className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                            template === t.id ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-gray-200 text-gray-500"
+                          }`}>
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <input value={imgTopic} onChange={(e) => setImgTopic(e.target.value)}
+                        placeholder="e.g. foods that help lower blood pressure"
+                        onKeyDown={(e) => e.key === "Enter" && generateImage()}
+                        className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                      <GenerateBtn loading={genLoading} onClick={generateImage} />
+                    </div>
+                    <p className="text-xs text-gray-400">AI fills in the template from your topic, then renders a branded 1080×1350 graphic.</p>
+                  </div>
+                )}
+
+                {imgSource === "ai" && (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <input value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
+                        placeholder="e.g. a heart made of fresh vegetables, studio lighting"
+                        onKeyDown={(e) => e.key === "Enter" && generateImage()}
+                        className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                      <GenerateBtn loading={genLoading} onClick={generateImage} />
+                    </div>
+                    <p className="text-xs text-gray-400">Photorealistic AI image (fal.ai Flux).</p>
+                  </div>
+                )}
+              </div>
             )}
             <input ref={fileRef} type="file" accept="image/*" onChange={onPickImage} className="hidden" />
           </div>
@@ -254,6 +363,15 @@ export default function SocialPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+function GenerateBtn({ loading, onClick }: { loading: boolean; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} disabled={loading}
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-60">
+      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Create
+    </button>
   )
 }
 
