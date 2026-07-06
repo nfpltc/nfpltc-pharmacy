@@ -9,7 +9,8 @@ import {
 
 type Platform = "facebook" | "instagram" | "linkedin"
 type ImgSource = "upload" | "template" | "ai"
-type HealthTemplate = "tip_card" | "food_as_medicine" | "quote_card"
+type HealthTemplate = "hero_photo" | "tip_card" | "food_as_medicine" | "quote_card"
+type PhotoEngine = "stock" | "ai"
 type Post = {
   id: string
   caption: string
@@ -26,6 +27,7 @@ const PLATFORMS: { id: Platform; label: string; icon: any }[] = [
 ]
 
 const TEMPLATES: { id: HealthTemplate; label: string }[] = [
+  { id: "hero_photo", label: "Photo headline" },
   { id: "tip_card", label: "Wellness tips" },
   { id: "food_as_medicine", label: "Food as medicine" },
   { id: "quote_card", label: "Quote / announcement" },
@@ -45,7 +47,8 @@ export default function SocialPage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [genUrl, setGenUrl] = useState<string | null>(null)      // generated + re-hosted image URL
   const [imgSource, setImgSource] = useState<ImgSource>("upload")
-  const [template, setTemplate] = useState<HealthTemplate>("tip_card")
+  const [template, setTemplate] = useState<HealthTemplate>("hero_photo")
+  const [photoEngine, setPhotoEngine] = useState<PhotoEngine>("stock")
   const [imgTopic, setImgTopic] = useState("")
   const [aiPrompt, setAiPrompt] = useState("")
   const [genLoading, setGenLoading] = useState(false)
@@ -93,7 +96,7 @@ export default function SocialPage() {
     const payload =
       imgSource === "ai"
         ? { mode: "ai", prompt: aiPrompt }
-        : { mode: "template", template, topic: imgTopic }
+        : { mode: "template", template, topic: imgTopic, photo: photoEngine }
     if (imgSource === "ai" ? !aiPrompt.trim() : !imgTopic.trim()) {
       setMsg({ type: "error", text: "Describe the image first." }); return
     }
@@ -294,6 +297,19 @@ export default function SocialPage() {
                         </button>
                       ))}
                     </div>
+                    {template === "hero_photo" && (
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="text-gray-400">Photo:</span>
+                        {(["stock", "ai"] as PhotoEngine[]).map((p) => (
+                          <button key={p} type="button" onClick={() => setPhotoEngine(p)}
+                            className={`rounded-full border px-3 py-1 font-medium ${
+                              photoEngine === p ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-gray-200 text-gray-500"
+                            }`}>
+                            {p === "stock" ? "Stock photo" : "AI photo"}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <input value={imgTopic} onChange={(e) => setImgTopic(e.target.value)}
                         placeholder="e.g. foods that help lower blood pressure"
@@ -301,7 +317,7 @@ export default function SocialPage() {
                         className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
                       <GenerateBtn loading={genLoading} onClick={generateImage} />
                     </div>
-                    <p className="text-xs text-gray-400">AI fills in the template from your topic, then renders a branded 1080×1350 graphic.</p>
+                    <p className="text-xs text-gray-400">AI writes the text from your topic and pairs it with a matching photo, then renders a branded 1080×1350 graphic.</p>
                   </div>
                 )}
 
