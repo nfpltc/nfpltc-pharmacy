@@ -1,377 +1,362 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import {
-  Share2, Sparkles, Image as ImageIcon, X, Send, Loader2,
-  Instagram, Facebook, Linkedin, CheckCircle2, AlertCircle, Clock, FileText,
-  Upload, LayoutTemplate, Wand2,
+  Linkedin, Twitter, Instagram, Sparkles, Wand2, Image as ImageIcon, Send,
+  Clock, CalendarClock, Loader2, Trash2, RefreshCw, Save, Share2, AlertCircle,
+  CheckCircle2, Play, FolderOpen,
 } from "lucide-react"
 
-type Platform = "facebook" | "instagram" | "linkedin"
-type ImgSource = "upload" | "template" | "ai"
-type HealthTemplate = "hero_photo" | "tip_card" | "food_as_medicine" | "quote_card"
-type PhotoEngine = "stock" | "ai"
-type Post = {
-  id: string
-  caption: string
-  image_url: string | null
-  platforms: string[]
-  status: "draft" | "posted" | "failed"
-  created_at: string
+type Platform = "linkedin" | "x" | "instagram"
+type Channel = { id: string; name: string; service: string; platform: string; avatar?: string }
+type QueueItem = {
+  id: string; text: string; platform: string; channel_id: string; channel_name?: string
+  image_url?: string; due_at: string; status: string; error?: string; sent_at?: string; created_at?: string
 }
+type Msg = { type: "success" | "error" | "info"; text: string } | null
 
-const PLATFORMS: { id: Platform; label: string; icon: any }[] = [
-  { id: "facebook", label: "Facebook", icon: Facebook },
-  { id: "instagram", label: "Instagram", icon: Instagram },
-  { id: "linkedin", label: "LinkedIn", icon: Linkedin },
+const PLATFORMS: { id: Platform; label: string; icon: any; limit: number }[] = [
+  { id: "linkedin", label: "LinkedIn", icon: Linkedin, limit: 3000 },
+  { id: "x", label: "X", icon: Twitter, limit: 270 },
+  { id: "instagram", label: "Instagram", icon: Instagram, limit: 2000 },
 ]
 
-const TEMPLATES: { id: HealthTemplate; label: string }[] = [
-  { id: "hero_photo", label: "Photo headline" },
-  { id: "tip_card", label: "Wellness tips" },
-  { id: "food_as_medicine", label: "Food as medicine" },
-  { id: "quote_card", label: "Quote / announcement" },
+const REWRITES: { label: string; instr: string }[] = [
+  { label: "Shorter", instr: "Make it noticeably shorter and punchier." },
+  { label: "Hook line", instr: "Rewrite the opening as a scroll-stopping hook line, keep the rest." },
+  { label: "Story", instr: "Rewrite as a short, warm personal story." },
+  { label: "Hot take", instr: "Rewrite as one bold, sharp hot take." },
+  { label: "Add CTA", instr: "Add a clear question CTA at the end." },
+  { label: "Warmer", instr: "Make the tone warmer and more human." },
 ]
 
-const IMG_SOURCES: { id: ImgSource; label: string; icon: any }[] = [
-  { id: "upload", label: "Upload", icon: Upload },
-  { id: "template", label: "Template", icon: LayoutTemplate },
-  { id: "ai", label: "AI image", icon: Wand2 },
-]
+const TONES = ["Warm & friendly", "Professional", "Playful", "Inspirational", "Educational"]
+const DRAFTS_KEY = "nfp_social_drafts"
 
-export default function SocialPage() {
-  const [caption, setCaption] = useState("")
-  const [selected, setSelected] = useState<Platform[]>(["facebook", "instagram"])
+export default function SocialEditor() {
   const [topic, setTopic] = useState("")
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [genUrl, setGenUrl] = useState<string | null>(null)      // generated + re-hosted image URL
-  const [imgSource, setImgSource] = useState<ImgSource>("upload")
-  const [template, setTemplate] = useState<HealthTemplate>("hero_photo")
-  const [photoEngine, setPhotoEngine] = useState<PhotoEngine>("stock")
-  const [imgTopic, setImgTopic] = useState("")
-  const [aiPrompt, setAiPrompt] = useState("")
-  const [genLoading, setGenLoading] = useState(false)
-  const [generating, setGenerating] = useState(false)
-  const [posting, setPosting] = useState(false)
-  const [msg, setMsg] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null)
-  const [history, setHistory] = useState<Post[]>([])
-  const [configured, setConfigured] = useState(true)
-  const fileRef = useRef<HTMLInputElement>(null)
+  const [tone, setTone] = useState(TONES[0])
+  const [composing, setComposing] = useState(false)
+  const [texts, setTexts] = useState<Record<Platform, string>>({ linkedin: "", x: "", instagram: "" })
 
-  useEffect(() => { loadHistory() }, [])
+  const [imageUrl, setImageUrl] = useState("")
+  const [imageCredit, setImageCredit] = useState<{ name: string; link?: string } | null>(null)
+  const [imageQuery, setImageQuery] = useState("")
+  const [imagePrompt, setImagePrompt] = useState("")
+  const [imageProvider, setImageProvider] = useState<"auto" | "fal" | "unsplash">("auto")
+  const [imgLoading, setImgLoading] = useState(false)
 
-  async function loadHistory() {
+  const [channels, setChannels] = useState<Channel[]>([])
+  const [channelsError, setChannelsError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Record<Platform, string>>({ linkedin: "", x: "", instagram: "" })
+  const [scheduleAt, setScheduleAt] = useState<Record<Platform, string>>({ linkedin: "", x: "", instagram: "" })
+  const [busy, setBusy] = useState<Record<string, boolean>>({})
+
+  const [queue, setQueue] = useState<QueueItem[]>([])
+  const [processing, setProcessing] = useState(false)
+  const [rewriting, setRewriting] = useState<Platform | null>(null)
+  const [msg, setMsg] = useState<Msg>(null)
+  const [drafts, setDrafts] = useState<any[]>([])
+
+  useEffect(() => { loadChannels(); loadQueue(); setDrafts(readDrafts()) }, [])
+
+  async function loadChannels() {
     try {
-      const res = await fetch("/api/admin/social/post")
+      const res = await fetch("/api/admin/buffer/profiles")
+      const data = await res.json()
       if (res.ok) {
-        const data = await res.json()
-        setHistory(Array.isArray(data.posts) ? data.posts : [])
-        setConfigured(data.configured !== false)
-      }
+        const ch: Channel[] = data.channels || []
+        setChannels(ch)
+        setChannelsError(null)
+        // auto-select the first channel for each platform
+        setSelected((cur) => {
+          const next = { ...cur }
+          for (const p of PLATFORMS) {
+            if (!next[p.id]) next[p.id] = ch.find((c) => c.platform === p.id)?.id || ""
+          }
+          return next
+        })
+      } else setChannelsError(data.error || "Could not load Buffer channels.")
+    } catch { setChannelsError("Could not reach Buffer.") }
+  }
+
+  async function loadQueue() {
+    try {
+      const res = await fetch("/api/admin/social/queue")
+      if (res.ok) setQueue((await res.json()).items || [])
     } catch { /* ignore */ }
   }
 
-  function togglePlatform(p: Platform) {
-    setSelected((cur) => (cur.includes(p) ? cur.filter((x) => x !== p) : [...cur, p]))
-  }
-
-  function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0]
-    if (!f) return
-    setGenUrl(null)
-    setImageFile(f)
-    setImagePreview(URL.createObjectURL(f))
-  }
-
-  function clearImage() {
-    setImageFile(null)
-    setGenUrl(null)
-    setImagePreview(null)
-    if (fileRef.current) fileRef.current.value = ""
-  }
-
-  // Generate an image (HTML template or AI), re-hosted in Supabase, and preview it.
-  async function generateImage() {
-    const payload =
-      imgSource === "ai"
-        ? { mode: "ai", prompt: aiPrompt }
-        : { mode: "template", template, topic: imgTopic, photo: photoEngine }
-    if (imgSource === "ai" ? !aiPrompt.trim() : !imgTopic.trim()) {
-      setMsg({ type: "error", text: "Describe the image first." }); return
-    }
-    setGenLoading(true); setMsg(null)
+  async function compose() {
+    if (!topic.trim()) { setMsg({ type: "error", text: "Enter a topic first." }); return }
+    setComposing(true); setMsg(null)
     try {
-      const res = await fetch("/api/admin/social/generate-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      const res = await fetch("/api/admin/compose-post", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic, tone }),
       })
-      const data = await res.json()
-      if (res.ok && data.image_url) {
-        setImageFile(null)
-        setGenUrl(data.image_url)
-        setImagePreview(data.image_url)
-        if (data.warning) setMsg({ type: "info", text: data.warning })
-      } else {
-        setMsg({ type: "error", text: data.error || "Could not create image." })
-      }
-    } catch {
-      setMsg({ type: "error", text: "Could not reach the image service." })
-    } finally {
-      setGenLoading(false)
-    }
-  }
-
-  async function generateCaption() {
-    if (!topic.trim()) { setMsg({ type: "error", text: "Type a topic for the AI first." }); return }
-    setGenerating(true); setMsg(null)
-    try {
-      const res = await fetch("/api/admin/social/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: topic, platform: selected[0] || "instagram" }),
-      })
-      const data = await res.json()
-      if (res.ok) setCaption(data.caption)
-      else setMsg({ type: "error", text: data.error || "Could not generate." })
-    } catch {
-      setMsg({ type: "error", text: "Could not reach the AI service." })
-    } finally {
-      setGenerating(false)
-    }
-  }
-
-  async function publish() {
-    setMsg(null)
-    if (!caption.trim()) { setMsg({ type: "error", text: "Please write a caption." }); return }
-    if (selected.length === 0) { setMsg({ type: "error", text: "Pick at least one platform." }); return }
-    if (selected.includes("instagram") && !imageFile && !genUrl) {
-      setMsg({ type: "error", text: "Instagram needs an image. Add one, or uncheck Instagram." }); return
-    }
-    setPosting(true)
-    try {
-      const form = new FormData()
-      form.set("caption", caption)
-      form.set("platforms", selected.join(","))
-      if (imageFile) form.set("image", imageFile)
-      else if (genUrl) form.set("image_url", genUrl)
-
-      const res = await fetch("/api/admin/social/post", { method: "POST", body: form })
-      const data = await res.json()
+      const d = await res.json()
       if (res.ok) {
-        setMsg({ type: data.draft ? "info" : "success", text: data.message || "Posted!" })
-        setCaption(""); setTopic(""); setImgTopic(""); setAiPrompt(""); clearImage()
-        loadHistory()
-      } else {
-        setMsg({ type: "error", text: data.error || "Failed to post." })
-      }
-    } catch {
-      setMsg({ type: "error", text: "Failed to post." })
-    } finally {
-      setPosting(false)
-    }
+        setTexts({ linkedin: d.linkedin, x: d.x, instagram: d.instagram })
+        setImageQuery(d.image_query || ""); setImagePrompt(d.image_prompt || "")
+        setMsg({ type: "success", text: "Drafted 3 platform posts. Generate an image, then post or queue." })
+      } else setMsg({ type: "error", text: d.error || "Compose failed." })
+    } catch { setMsg({ type: "error", text: "Compose failed." }) }
+    finally { setComposing(false) }
+  }
+
+  async function genImage() {
+    if (!imagePrompt && !imageQuery) { setMsg({ type: "error", text: "Compose first, or type an image query." }); return }
+    setImgLoading(true); setMsg(null)
+    try {
+      const res = await fetch("/api/admin/social/image", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: imagePrompt, query: imageQuery, provider: imageProvider }),
+      })
+      const d = await res.json()
+      if (res.ok) {
+        setImageUrl(d.url)
+        setImageCredit(d.credit ? { name: d.credit, link: d.creditLink } : null)
+      } else setMsg({ type: "error", text: d.error || "Image generation failed." })
+    } catch { setMsg({ type: "error", text: "Image generation failed." }) }
+    finally { setImgLoading(false) }
+  }
+
+  async function rewrite(platform: Platform, instr: string) {
+    if (!texts[platform].trim()) return
+    setRewriting(platform); setMsg(null)
+    try {
+      const res = await fetch("/api/admin/social-rewrite", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: texts[platform], instruction: instr, platform }),
+      })
+      const d = await res.json()
+      if (res.ok) setTexts((t) => ({ ...t, [platform]: d.text }))
+      else setMsg({ type: "error", text: d.error || "Rewrite failed." })
+    } catch { setMsg({ type: "error", text: "Rewrite failed." }) }
+    finally { setRewriting(null) }
+  }
+
+  function validate(platform: Platform): string | null {
+    if (!texts[platform].trim()) return "Nothing to post."
+    if (!selected[platform]) return `No ${platform === "x" ? "X" : platform} channel connected in Buffer.`
+    if (platform === "instagram" && !imageUrl) return "Instagram needs an image."
+    return null
+  }
+
+  async function postNow(platform: Platform) {
+    const err = validate(platform)
+    if (err) { setMsg({ type: "error", text: err }); return }
+    setBusy((b) => ({ ...b, [platform]: true })); setMsg(null)
+    try {
+      const res = await fetch("/api/admin/buffer/post", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId: selected[platform], text: texts[platform], imageUrl: imageUrl || undefined, mode: "shareNow" }),
+      })
+      const d = await res.json()
+      setMsg(res.ok
+        ? { type: "success", text: `Posted to ${platform === "x" ? "X" : platform}.` }
+        : { type: "error", text: d.error || "Post failed." })
+    } catch { setMsg({ type: "error", text: "Post failed." }) }
+    finally { setBusy((b) => ({ ...b, [platform]: false })) }
+  }
+
+  async function enqueue(platform: Platform, dueAt: string) {
+    const err = validate(platform)
+    if (err) { setMsg({ type: "error", text: err }); return }
+    const ch = channels.find((c) => c.id === selected[platform])
+    setBusy((b) => ({ ...b, [platform]: true })); setMsg(null)
+    try {
+      const res = await fetch("/api/admin/social/queue", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add", items: [{
+          text: texts[platform], platform, channel_id: selected[platform],
+          channel_name: ch?.name, image_url: imageUrl || null, due_at: dueAt,
+        }] }),
+      })
+      const d = await res.json()
+      if (res.ok) { setMsg({ type: "success", text: "Added to queue." }); loadQueue() }
+      else setMsg({ type: "error", text: d.error || "Queue failed." })
+    } catch { setMsg({ type: "error", text: "Queue failed." }) }
+    finally { setBusy((b) => ({ ...b, [platform]: false })) }
+  }
+
+  const inOneMinute = () => new Date(Date.now() + 60_000).toISOString()
+
+  async function postAll() {
+    for (const p of PLATFORMS) if (texts[p.id].trim() && selected[p.id] && !(p.id === "instagram" && !imageUrl)) await postNow(p.id)
+  }
+  async function queueAll() {
+    for (const p of PLATFORMS) if (texts[p.id].trim() && selected[p.id] && !(p.id === "instagram" && !imageUrl)) await enqueue(p.id, inOneMinute())
+  }
+
+  async function queueAction(action: string, id?: string) {
+    if (action === "process-due") setProcessing(true)
+    try {
+      const res = await fetch("/api/admin/social/queue", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, id }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) setMsg({ type: "error", text: d.error || "Queue action failed." })
+      else if (action === "process-due") setMsg({ type: "info", text: `Processed ${d.processed}: ${d.sent} sent, ${d.failed} failed.` })
+      loadQueue()
+    } finally { setProcessing(false) }
+  }
+
+  // Drafts (localStorage)
+  function readDrafts(): any[] { try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) || "[]") } catch { return [] } }
+  function saveDraft() {
+    if (!topic.trim() && !texts.linkedin) return
+    const d = { id: String(Date.now()), topic, texts, imageUrl, imageQuery, imagePrompt }
+    const next = [d, ...readDrafts()].slice(0, 20)
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(next)); setDrafts(next)
+    setMsg({ type: "success", text: "Draft saved." })
+  }
+  function loadDraft(d: any) {
+    setTopic(d.topic || ""); setTexts(d.texts || { linkedin: "", x: "", instagram: "" })
+    setImageUrl(d.imageUrl || ""); setImageQuery(d.imageQuery || ""); setImagePrompt(d.imagePrompt || "")
+    setImageCredit(null)
+  }
+  function deleteDraft(id: string) {
+    const next = readDrafts().filter((x: any) => x.id !== id)
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(next)); setDrafts(next)
   }
 
   return (
-    <div className="mx-auto max-w-5xl">
-      {/* Header */}
-      <div className="mb-6 flex items-center gap-3">
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-700/10 text-emerald-700">
-          <Share2 className="h-5 w-5" />
-        </span>
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Social Media</h1>
-          <p className="text-sm text-gray-500">Compose a post, let AI help, and publish to your channels.</p>
+    <div className="mx-auto max-w-6xl">
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-700/10 text-emerald-700"><Share2 className="h-5 w-5" /></span>
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-900">Social Media Editor</h1>
+            <p className="text-sm text-gray-500">Draft per-platform posts with AI, add an image, and post or schedule via Buffer.</p>
+          </div>
         </div>
+        <button onClick={saveDraft} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"><Save className="h-4 w-4" /> Save draft</button>
       </div>
 
-      {!configured && (
-        <div className="mb-5 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>No social provider is connected yet. Posts will be saved as <b>drafts</b>. Set <code className="rounded bg-amber-100 px-1">SOCIAL_WEBHOOK_URL</code> (your Make.com webhook) to publish automatically.</span>
-        </div>
+      {channelsError && (
+        <Banner type="error" text={`Buffer: ${channelsError} Add a connectors row { id:'buffer', bearer_token } in Supabase.`} />
       )}
+      {msg && <Banner type={msg.type} text={msg.text} />}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        {/* Composer */}
-        <div className="lg:col-span-3 space-y-5 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          {msg && (
-            <div className={`flex items-start gap-2 rounded-lg p-3 text-sm ${
-              msg.type === "success" ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-              : msg.type === "info" ? "bg-blue-50 text-blue-800 border border-blue-200"
-              : "bg-red-50 text-red-700 border border-red-200"
-            }`}>
-              {msg.type === "success" ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />}
-              <span>{msg.text}</span>
-            </div>
-          )}
-
-          {/* Platforms */}
+      {/* Compose */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[240px]">
+            <label className="mb-1 block text-xs font-medium text-gray-500">Topic</label>
+            <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. why medication reviews matter for seniors"
+              onKeyDown={(e) => e.key === "Enter" && compose()}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+          </div>
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Post to</label>
-            <div className="flex flex-wrap gap-2">
-              {PLATFORMS.map(({ id, label, icon: Icon }) => {
-                const on = selected.includes(id)
-                return (
-                  <button key={id} type="button" onClick={() => togglePlatform(id)}
-                    className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
-                      on ? "border-emerald-600 bg-emerald-600 text-white" : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-                    }`}>
-                    <Icon className="h-4 w-4" /> {label}
-                  </button>
-                )
-              })}
-            </div>
+            <label className="mb-1 block text-xs font-medium text-gray-500">Tone</label>
+            <select value={tone} onChange={(e) => setTone(e.target.value)} className="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+              {TONES.map((t) => <option key={t}>{t}</option>)}
+            </select>
           </div>
-
-          {/* AI helper */}
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
-            <label className="mb-2 flex items-center gap-1.5 text-sm font-medium text-emerald-800">
-              <Sparkles className="h-4 w-4" /> AI caption helper
-            </label>
-            <div className="flex gap-2">
-              <input value={topic} onChange={(e) => setTopic(e.target.value)}
-                placeholder="e.g. flu shots now available, walk-ins welcome"
-                onKeyDown={(e) => e.key === "Enter" && generateCaption()}
-                className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-              <button type="button" onClick={generateCaption} disabled={generating}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-60">
-                {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Generate
-              </button>
-            </div>
-          </div>
-
-          {/* Caption */}
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Caption</label>
-            <textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={7}
-              placeholder="Write your post, or generate one above…"
-              className="w-full resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-            <p className="mt-1 text-right text-xs text-gray-400">{caption.length} characters</p>
-          </div>
-
-          {/* Image */}
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">Image {selected.includes("instagram") && <span className="text-red-500">(required for Instagram)</span>}</label>
-
-            {imagePreview ? (
-              <div className="relative inline-block">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={imagePreview} alt="preview" className="max-h-56 rounded-lg border border-gray-200" />
-                <button type="button" onClick={clearImage}
-                  className="absolute -right-2 -top-2 rounded-full bg-white p-1 text-gray-500 shadow ring-1 ring-gray-200 hover:text-red-600">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ) : (
-              <div className="rounded-xl border border-gray-200 p-3">
-                {/* Source tabs */}
-                <div className="mb-3 inline-flex rounded-lg border border-gray-200 p-1">
-                  {IMG_SOURCES.map(({ id, label, icon: Icon }) => (
-                    <button key={id} type="button" onClick={() => setImgSource(id)}
-                      className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                        imgSource === id ? "bg-emerald-600 text-white" : "text-gray-500 hover:text-gray-800"
-                      }`}>
-                      <Icon className="h-3.5 w-3.5" /> {label}
-                    </button>
-                  ))}
-                </div>
-
-                {imgSource === "upload" && (
-                  <button type="button" onClick={() => fileRef.current?.click()}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-sm text-gray-500 hover:border-emerald-400 hover:text-emerald-700">
-                    <ImageIcon className="h-4 w-4" /> Choose an image file
-                  </button>
-                )}
-
-                {imgSource === "template" && (
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap gap-1.5">
-                      {TEMPLATES.map((t) => (
-                        <button key={t.id} type="button" onClick={() => setTemplate(t.id)}
-                          className={`rounded-full border px-3 py-1 text-xs font-medium ${
-                            template === t.id ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-gray-200 text-gray-500"
-                          }`}>
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-                    {template === "hero_photo" && (
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="text-gray-400">Photo:</span>
-                        {(["stock", "ai"] as PhotoEngine[]).map((p) => (
-                          <button key={p} type="button" onClick={() => setPhotoEngine(p)}
-                            className={`rounded-full border px-3 py-1 font-medium ${
-                              photoEngine === p ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-gray-200 text-gray-500"
-                            }`}>
-                            {p === "stock" ? "Stock photo" : "AI photo"}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <input value={imgTopic} onChange={(e) => setImgTopic(e.target.value)}
-                        placeholder="e.g. foods that help lower blood pressure"
-                        onKeyDown={(e) => e.key === "Enter" && generateImage()}
-                        className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                      <GenerateBtn loading={genLoading} onClick={generateImage} />
-                    </div>
-                    <p className="text-xs text-gray-400">AI writes the text from your topic and pairs it with a matching photo, then renders a branded 1080×1350 graphic.</p>
-                  </div>
-                )}
-
-                {imgSource === "ai" && (
-                  <div className="space-y-2">
-                    <div className="flex gap-2">
-                      <input value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
-                        placeholder="e.g. a heart made of fresh vegetables, studio lighting"
-                        onKeyDown={(e) => e.key === "Enter" && generateImage()}
-                        className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-                      <GenerateBtn loading={genLoading} onClick={generateImage} />
-                    </div>
-                    <p className="text-xs text-gray-400">Photorealistic AI image (fal.ai Flux).</p>
-                  </div>
-                )}
-              </div>
-            )}
-            <input ref={fileRef} type="file" accept="image/*" onChange={onPickImage} className="hidden" />
-          </div>
-
-          {/* Publish */}
-          <button type="button" onClick={publish} disabled={posting}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 font-medium text-white hover:bg-emerald-800 disabled:opacity-60">
-            {posting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-            {posting ? "Publishing…" : configured ? "Publish" : "Save as draft"}
+          <button onClick={compose} disabled={composing} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-60">
+            {composing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} AI compose
           </button>
         </div>
 
-        {/* History */}
-        <div className="lg:col-span-2 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-sm font-semibold text-gray-700">Recent posts</h2>
-          {history.length === 0 ? (
-            <div className="py-10 text-center text-sm text-gray-400">
-              <Share2 className="mx-auto mb-2 h-8 w-8 opacity-40" />
-              Nothing posted yet.
-            </div>
+        {/* Image row */}
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/60 p-3">
+          {imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={imageUrl} alt="" className="h-20 w-20 rounded-lg object-cover" />
           ) : (
-            <ul className="space-y-3">
-              {history.map((p) => (
-                <li key={p.id} className="border-b border-gray-100 pb-3 last:border-0">
-                  <div className="flex items-start gap-2">
-                    {p.image_url && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={p.image_url} alt="" className="h-10 w-10 shrink-0 rounded object-cover" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-gray-800">{p.caption}</p>
-                      <div className="mt-1 flex items-center gap-2 text-xs text-gray-400">
-                        <StatusBadge status={p.status} />
-                        <span>{p.platforms.join(", ")}</span>
-                        <span>· {new Date(p.created_at).toLocaleDateString()}</span>
-                      </div>
+            <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-dashed border-gray-300 text-gray-400"><ImageIcon className="h-5 w-5" /></div>
+          )}
+          <div className="flex-1 min-w-[220px] space-y-2">
+            <input value={imageQuery} onChange={(e) => setImageQuery(e.target.value)} placeholder="image search words (Unsplash)"
+              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+            <input value={imagePrompt} onChange={(e) => setImagePrompt(e.target.value)} placeholder="AI image prompt (fal.ai)"
+              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+            {imageCredit && <p className="text-[11px] text-gray-400">Photo: {imageCredit.name}{imageCredit.link ? " · Unsplash" : ""}</p>}
+          </div>
+          <div className="flex items-center gap-2">
+            <select value={imageProvider} onChange={(e) => setImageProvider(e.target.value as any)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs">
+              <option value="auto">Auto</option><option value="fal">AI (fal.ai)</option><option value="unsplash">Unsplash</option>
+            </select>
+            <button onClick={genImage} disabled={imgLoading} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-600 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60">
+              {imgLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />} Image
+            </button>
+            {imageUrl && <button onClick={() => { setImageUrl(""); setImageCredit(null) }} className="text-gray-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>}
+          </div>
+        </div>
+      </div>
+
+      {/* Platform cards */}
+      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {PLATFORMS.map((p) => (
+          <PlatformCard
+            key={p.id} p={p} text={texts[p.id]} onText={(v) => setTexts((t) => ({ ...t, [p.id]: v }))}
+            channels={channels.filter((c) => c.platform === p.id)} selected={selected[p.id]}
+            onSelect={(id) => setSelected((s) => ({ ...s, [p.id]: id }))}
+            rewriting={rewriting === p.id} onRewrite={(instr) => rewrite(p.id, instr)}
+            busy={!!busy[p.id]} onPostNow={() => postNow(p.id)}
+            onQueue={() => enqueue(p.id, inOneMinute())}
+            scheduleValue={scheduleAt[p.id]} onSchedule={(v) => setScheduleAt((s) => ({ ...s, [p.id]: v }))}
+            onScheduleSubmit={() => { const v = scheduleAt[p.id]; if (!v) { setMsg({ type: "error", text: "Pick a date & time." }); return } enqueue(p.id, new Date(v).toISOString()) }}
+          />
+        ))}
+      </div>
+
+      {/* Batch footer */}
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-2 rounded-xl border border-gray-200 bg-white p-3">
+        <span className="mr-auto text-sm text-gray-500">Post everything at once:</span>
+        <button onClick={queueAll} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"><Clock className="h-4 w-4" /> Queue all</button>
+        <button onClick={postAll} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"><Send className="h-4 w-4" /> Post all now</button>
+      </div>
+
+      {/* Queue + drafts */}
+      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-700">Queue ({queue.filter((q) => q.status === "pending").length} pending)</h2>
+            <div className="flex gap-2">
+              <button onClick={loadQueue} className="text-gray-400 hover:text-gray-700"><RefreshCw className="h-4 w-4" /></button>
+              <button onClick={() => queueAction("process-due")} disabled={processing} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-60">
+                {processing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Process due
+              </button>
+            </div>
+          </div>
+          {queue.length === 0 ? (
+            <p className="py-8 text-center text-sm text-gray-400">Queue is empty.</p>
+          ) : (
+            <ul className="space-y-2">
+              {queue.map((q) => (
+                <li key={q.id} className="flex items-start gap-3 border-b border-gray-100 pb-2 last:border-0">
+                  {q.image_url && /* eslint-disable-next-line @next/next/no-img-element */ <img src={q.image_url} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-gray-800">{q.text}</p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+                      <QueueStatus status={q.status} />
+                      <span className="uppercase">{q.platform}</span>
+                      <span>· {new Date(q.due_at).toLocaleString()}</span>
+                      {q.error && <span className="text-red-500">· {q.error.slice(0, 40)}</span>}
                     </div>
                   </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {q.status !== "sent" && <button onClick={() => queueAction("post-now", q.id)} title="Post now" className="text-emerald-600 hover:text-emerald-800"><Send className="h-3.5 w-3.5" /></button>}
+                    <button onClick={() => queueAction("delete", q.id)} title="Delete" className="text-gray-400 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+          <h2 className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-gray-700"><FolderOpen className="h-4 w-4" /> Drafts</h2>
+          {drafts.length === 0 ? <p className="py-6 text-center text-sm text-gray-400">No saved drafts.</p> : (
+            <ul className="space-y-2">
+              {drafts.map((d) => (
+                <li key={d.id} className="flex items-center gap-2 border-b border-gray-100 pb-2 last:border-0">
+                  <button onClick={() => loadDraft(d)} className="min-w-0 flex-1 truncate text-left text-sm text-gray-700 hover:text-emerald-700">{d.topic || "(untitled)"}</button>
+                  <button onClick={() => deleteDraft(d.id)} className="text-gray-400 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>
                 </li>
               ))}
             </ul>
@@ -382,21 +367,63 @@ export default function SocialPage() {
   )
 }
 
-function GenerateBtn({ loading, onClick }: { loading: boolean; onClick: () => void }) {
+function PlatformCard(props: {
+  p: { id: Platform; label: string; icon: any; limit: number }
+  text: string; onText: (v: string) => void
+  channels: Channel[]; selected: string; onSelect: (id: string) => void
+  rewriting: boolean; onRewrite: (instr: string) => void
+  busy: boolean; onPostNow: () => void; onQueue: () => void
+  scheduleValue: string; onSchedule: (v: string) => void; onScheduleSubmit: () => void
+}) {
+  const { p, text, channels, selected, busy } = props
+  const Icon = p.icon
+  const over = text.length > p.limit
   return (
-    <button type="button" onClick={onClick} disabled={loading}
-      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-60">
-      {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />} Create
-    </button>
+    <div className="flex flex-col rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="inline-flex items-center gap-2 text-sm font-semibold text-gray-800"><Icon className="h-4 w-4 text-emerald-700" /> {p.label}</span>
+        <span className={`text-xs tabular-nums ${over ? "text-red-500 font-semibold" : "text-gray-400"}`}>{text.length}/{p.limit}</span>
+      </div>
+
+      <select value={selected} onChange={(e) => props.onSelect(e.target.value)} className="mb-2 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs">
+        {channels.length === 0 ? <option value="">No channel connected</option> : channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </select>
+
+      <textarea value={text} onChange={(e) => props.onText(e.target.value)} rows={7}
+        placeholder={`${p.label} post…`}
+        className="w-full flex-1 resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+
+      <div className="mt-2 flex flex-wrap gap-1">
+        {REWRITES.map((r) => (
+          <button key={r.label} onClick={() => props.onRewrite(r.instr)} disabled={props.rewriting || !text.trim()}
+            className="rounded-full border border-gray-200 px-2 py-0.5 text-[11px] text-gray-500 hover:border-emerald-400 hover:text-emerald-700 disabled:opacity-40">
+            {props.rewriting ? "…" : r.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-3 flex items-center gap-1.5">
+        <button onClick={props.onPostNow} disabled={busy} className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-800 disabled:opacity-60">
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Post now
+        </button>
+        <button onClick={props.onQueue} disabled={busy} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-2 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-60" title="Queue in 1 minute"><Clock className="h-3.5 w-3.5" /></button>
+      </div>
+      <div className="mt-1.5 flex items-center gap-1.5">
+        <input type="datetime-local" value={props.scheduleValue} onChange={(e) => props.onSchedule(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-gray-200 px-2 py-1 text-[11px]" />
+        <button onClick={props.onScheduleSubmit} disabled={busy} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] text-gray-600 hover:bg-gray-50 disabled:opacity-60"><CalendarClock className="h-3.5 w-3.5" /> Schedule</button>
+      </div>
+    </div>
   )
 }
 
-function StatusBadge({ status }: { status: Post["status"] }) {
-  const map = {
-    posted: { icon: CheckCircle2, cls: "text-emerald-600", label: "Posted" },
-    draft: { icon: FileText, cls: "text-blue-500", label: "Draft" },
-    failed: { icon: AlertCircle, cls: "text-red-500", label: "Failed" },
-  } as const
-  const { icon: Icon, cls, label } = map[status] ?? { icon: Clock, cls: "text-gray-400", label: status }
-  return <span className={`inline-flex items-center gap-1 font-medium ${cls}`}><Icon className="h-3 w-3" />{label}</span>
+function Banner({ type, text }: { type: "success" | "error" | "info"; text: string }) {
+  const cls = type === "success" ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+    : type === "info" ? "bg-blue-50 text-blue-800 border-blue-200" : "bg-red-50 text-red-700 border-red-200"
+  const Icon = type === "success" ? CheckCircle2 : AlertCircle
+  return <div className={`mb-4 flex items-start gap-2 rounded-xl border p-3 text-sm ${cls}`}><Icon className="mt-0.5 h-4 w-4 shrink-0" /><span>{text}</span></div>
+}
+
+function QueueStatus({ status }: { status: string }) {
+  const map: Record<string, string> = { pending: "text-amber-600", sent: "text-emerald-600", failed: "text-red-600" }
+  return <span className={`font-medium uppercase ${map[status] || "text-gray-400"}`}>{status}</span>
 }
