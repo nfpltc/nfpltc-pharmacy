@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { renderHealthTemplate, type HealthTemplate } from "@/lib/social/health-image-templates"
+import { renderHealthTemplate, PHOTO_TEMPLATES, type HealthTemplate } from "@/lib/social/health-image-templates"
 import { renderHtmlToImage, hctiConfigured } from "@/lib/social/render-image"
+import { fetchStockPhoto } from "@/lib/social/stock-photo"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -35,18 +36,31 @@ export async function POST(req: NextRequest) {
       if ("error" in r) return NextResponse.json({ error: r.error }, { status: 500 })
       providerUrl = r.url
     } else {
-      const template = (["tip_card", "food_as_medicine", "quote_card"].includes(body.template)
+      const template = (["hero_photo", "tip_card", "food_as_medicine", "quote_card"].includes(body.template)
         ? body.template
-        : "tip_card") as HealthTemplate
+        : "hero_photo") as HealthTemplate
 
       // Use provided data, or ask Groq to build it from a topic.
+      const topic = String(body.topic || "").trim()
       let data = body.data
       if (!data) {
-        const topic = String(body.topic || "").trim()
         if (!topic) return NextResponse.json({ error: "Give a topic or data for the image." }, { status: 400 })
         const built = await buildTemplateData(template, topic)
         if ("error" in built) return NextResponse.json({ error: built.error }, { status: 500 })
         data = built.data
+      }
+
+      // Photo templates need a hero image: stock by default, AI on request,
+      // stock→AI fallback. If none is available the template uses a brand gradient.
+      if (PHOTO_TEMPLATES.includes(template) && !data.image_url) {
+        const query = String(data.image_query || topic || "health wellness").trim()
+        const wantAi = body.photo === "ai"
+        const first = await getHeroImage(query, wantAi ? "ai" : "stock")
+        if ("url" in first) data.image_url = first.url
+        else if (!wantAi) {
+          const alt = await getHeroImage(query, "ai") // stock missing → try AI
+          if ("url" in alt) data.image_url = alt.url
+        }
       }
 
       if (!hctiConfigured()) {
@@ -68,6 +82,13 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Server error" }, { status: 500 })
   }
+}
+
+// Get a hero photo for a photo template: AI (fal.ai) or stock (Pexels).
+async function getHeroImage(query: string, engine: "stock" | "ai"): Promise<{ url: string } | { error: string }> {
+  if (engine === "ai") return generateAiImage(`${query}, editorial photography, natural light`)
+  const r = await fetchStockPhoto(query, { orientation: "portrait" })
+  return "url" in r ? { url: r.url } : { error: r.error }
 }
 
 // ── fal.ai Flux (photorealistic) ────────────────────────────────────────────
@@ -97,14 +118,15 @@ async function buildTemplateData(template: HealthTemplate, topic: string): Promi
   if (!groqKey) return { error: "GROQ_API_KEY not configured." }
 
   const shape = {
-    tip_card: `{"headline":"short punchy headline (<= 6 words)","tips":[{"emoji":"one emoji","label":"short tip (<= 6 words)"}]}  — exactly 4 tips`,
-    food_as_medicine: `{"title":"FOOD AS MEDICINE or similar (<= 4 words)","items":[{"emoji":"one food emoji","food":"food name","benefit":"short benefit (<= 4 words)"}]}  — exactly 4 items`,
-    quote_card: `{"quote":"a warm 1-2 sentence wellness message","attribution":"North Falmouth Pharmacy"}`,
+    hero_photo: `{"kicker":"2-3 word eyebrow label","headline":"3 to 6 word headline, bold and specific","subtext":"one supporting sentence, max 12 words","image_query":"2-4 plain nouns to find a matching stock photo, e.g. fresh spinach leaves"}`,
+    tip_card: `{"headline":"punchy headline, max 6 words","tips":[{"emoji":"one relevant emoji","label":"specific, concrete tip, max 6 words"}]}  — exactly 4 tips`,
+    food_as_medicine: `{"title":"FOOD AS MEDICINE or similar, max 4 words","items":[{"emoji":"one food emoji","food":"food name","benefit":"real, specific benefit, max 4 words"}]}  — exactly 4 items`,
+    quote_card: `{"quote":"a warm, specific 1-2 sentence wellness message","attribution":"North Falmouth Pharmacy"}`,
   }[template]
 
-  const system = `You create content for North Falmouth Pharmacy social graphics. Return ONLY valid JSON matching this shape, no markdown, no code fences:
+  const system = `You write social-graphic content for North Falmouth Pharmacy, a Cape Cod community and long-term-care pharmacy. Return ONLY valid JSON matching this exact shape, with no markdown and no code fences:
 ${shape}
-Keep text short enough to fit a graphic. Health-positive, no medical claims, no drug names, no prices, no dosages. Do not use em dashes.`
+Rules: be specific and marketing-ready, never vague filler. Warm, trustworthy, evidence-aligned. No medical claims, no drug names, no prices, no dosages. Keep every field short enough to fit on a graphic. Do not use em dashes.`
 
   const resp = await fetch(GROQ_URL, {
     method: "POST",

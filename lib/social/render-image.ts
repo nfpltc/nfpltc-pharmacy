@@ -31,7 +31,7 @@ export async function renderHtmlToImage(
 
   // Crisp-font shell around the template markup.
   const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Anton&family=Archivo+Black&display=swap" rel="stylesheet">
 <style>*{margin:0;padding:0;box-sizing:border-box;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}</style>
 </head><body style="width:${width}px;height:${height}px;overflow:hidden;">${html}</body></html>`
 
