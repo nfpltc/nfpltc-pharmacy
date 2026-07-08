@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
+import { supabase } from "@/lib/supabaseClient"
 
 interface Statement {
   id: string; first_name: string; last_name: string; account_number: string
@@ -58,6 +59,10 @@ export default function AdminStatementsPage() {
   const [uploadResults, setUploadResults] = useState({ success: 0, failed: 0, errors: [] as string[] })
   const [dragActive, setDragActive] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  // Upload mode: "split" = many pre-split files (old model, backup); "monthly" =
+  // one big monthly PDF that gets indexed into per-customer page ranges (new model).
+  const [mode, setMode] = useState<"split" | "monthly">("split")
+  const [bulkPassword, setBulkPassword] = useState("9291")
 
   // Debounce the search input: wait 400ms after typing stops before actually searching.
   // Saves hammering the API with 3400-row fetches on every keystroke.
@@ -125,18 +130,61 @@ export default function AdminStatementsPage() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation(); setDragActive(false)
     const dropped = Array.from(e.dataTransfer.files).filter(f => f.type === "application/pdf" || f.name.endsWith(".pdf"))
-    if (dropped.length > 0) setFiles(prev => [...prev, ...dropped])
-    else setMsg({ ok: false, text: "Only PDF files are accepted" })
-  }, [])
+    if (dropped.length === 0) { setMsg({ ok: false, text: "Only PDF files are accepted" }); return }
+    if (mode === "monthly") setFiles([dropped[0]])
+    else setFiles(prev => [...prev, ...dropped])
+  }, [mode])
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(e.target.files || []).filter(f => f.type === "application/pdf" || f.name.endsWith(".pdf"))
-    setFiles(prev => [...prev, ...selected])
+    if (mode === "monthly") setFiles(selected.slice(0, 1))
+    else setFiles(prev => [...prev, ...selected])
     if (fileRef.current) fileRef.current.value = ""
+  }
+
+  // New model: one big monthly PDF -> upload to Supabase -> index into page ranges.
+  const handleMonthlyUpload = async () => {
+    if (!billingPeriod) { setMsg({ ok: false, text: "Select a billing month" }); return }
+    if (files.length !== 1) { setMsg({ ok: false, text: "Add exactly one monthly PDF" }); return }
+    setUploading(true)
+    setUploadResults({ success: 0, failed: 0, errors: [] })
+    setProgress({ current: 0, total: 1, name: "Uploading…" })
+    try {
+      const file = files[0]
+      const signRes = await fetch("/api/admin/statements/bulk-sign", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month_ym: billingPeriod, stamp: Date.now() }),
+      })
+      const sign = await signRes.json()
+      if (!signRes.ok) throw new Error(sign.error || "Could not start upload")
+
+      const up = await supabase.storage.from(sign.bucket).uploadToSignedUrl(sign.path, sign.token, file)
+      if (up.error) throw new Error(`Upload failed: ${up.error.message}`)
+
+      setProgress({ current: 1, total: 1, name: "Indexing customers…" })
+      const idxRes = await fetch("/api/admin/statements/bulk-index", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: sign.path, password: bulkPassword, month_ym: billingPeriod }),
+      })
+      const idx = await idxRes.json()
+      if (!idxRes.ok) throw new Error(idx.error || "Indexing failed")
+
+      setUploadResults({ success: idx.customers, failed: 0, errors: [] })
+      setMsg({ ok: true, text: `Indexed ${idx.customers} customers for ${idx.month_label || billingPeriod}.` })
+      setFiles([])
+      setFilterPeriod(billingPeriod); setPage(1)
+    } catch (e: any) {
+      setUploadResults({ success: 0, failed: 1, errors: [e.message || "Upload failed"] })
+      setMsg({ ok: false, text: e.message || "Upload failed" })
+    } finally {
+      setUploading(false)
+      load()
+    }
   }
 
   // Bulk upload
   const handleUpload = async () => {
+    if (mode === "monthly") { handleMonthlyUpload(); return }
     if (!billingPeriod) { setMsg({ ok: false, text: "Select a billing month" }); return }
     if (files.length === 0) { setMsg({ ok: false, text: "Add PDF files first" }); return }
 
@@ -209,6 +257,12 @@ export default function AdminStatementsPage() {
             <div className="sticky top-6 rounded-xl border border-emerald-900/10 bg-white p-6 shadow-sm">
               <h2 className="mb-4 text-lg font-semibold">Bulk Upload Statements</h2>
 
+              {/* Upload mode: old split-files model (backup) vs new monthly-PDF model */}
+              <div className="mb-4 inline-flex w-full rounded-lg border border-gray-200 p-0.5 text-xs">
+                <button type="button" onClick={() => { setMode("split"); setFiles([]) }} className={`flex-1 rounded-md px-3 py-1.5 font-medium transition-colors ${mode === "split" ? "bg-emerald-700 text-white" : "text-gray-600 hover:bg-gray-50"}`}>Split files</button>
+                <button type="button" onClick={() => { setMode("monthly"); setFiles([]) }} className={`flex-1 rounded-md px-3 py-1.5 font-medium transition-colors ${mode === "monthly" ? "bg-emerald-700 text-white" : "text-gray-600 hover:bg-gray-50"}`}>One monthly PDF</button>
+              </div>
+
               {/* Billing Period */}
               <div className="mb-4">
                 <label className="mb-1 block text-xs font-medium">Billing Month *</label>
@@ -216,32 +270,41 @@ export default function AdminStatementsPage() {
                 <p className="mt-1 text-xs text-gray-400">e.g. March 2026</p>
               </div>
 
+              {/* PDF password — only the monthly (new) model needs it */}
+              {mode === "monthly" && (
+                <div className="mb-4">
+                  <label className="mb-1 block text-xs font-medium">PDF password</label>
+                  <input value={bulkPassword} onChange={e => setBulkPassword(e.target.value)} className="w-full h-11 rounded-lg border px-3 text-sm focus:border-emerald-500 focus:outline-none" />
+                  <p className="mt-1 text-xs text-gray-400">Usually 9291.</p>
+                </div>
+              )}
+
               {/* Drag & Drop Zone */}
               <div
                 onDragEnter={handleDrag} onDragLeave={handleDrag} onDragOver={handleDrag} onDrop={handleDrop}
                 onClick={() => fileRef.current?.click()}
                 className={`relative cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition ${dragActive ? "border-emerald-400 bg-emerald-50" : files.length > 0 ? "border-emerald-300 bg-emerald-50" : "border-gray-300 hover:border-gray-400 hover:bg-gray-50"}`}
               >
-                <input ref={fileRef} type="file" accept=".pdf" multiple onChange={handleFileSelect} className="hidden" />
+                <input ref={fileRef} type="file" accept=".pdf" multiple={mode === "split"} onChange={handleFileSelect} className="hidden" />
                 {files.length > 0 ? (
                   <div>
                     <p className="text-3xl mb-2">📄</p>
-                    <p className="font-medium text-emerald-700">{files.length} PDFs ready</p>
+                    <p className="font-medium text-emerald-700 break-all">{mode === "monthly" ? files[0]?.name : `${files.length} PDFs ready`}</p>
                     <p className="text-xs text-emerald-600 mt-1">{(files.reduce((s, f) => s + f.size, 0) / 1024 / 1024).toFixed(1)} MB total</p>
-                    <button onClick={(e) => { e.stopPropagation(); setFiles([]) }} className="mt-2 text-xs text-red-500 hover:text-red-700">Clear all</button>
+                    <button onClick={(e) => { e.stopPropagation(); setFiles([]) }} className="mt-2 text-xs text-red-500 hover:text-red-700">Clear</button>
                   </div>
                 ) : (
                   <div>
                     <p className="text-3xl mb-2">📂</p>
-                    <p className="font-medium text-gray-700">Drag & Drop PDFs here</p>
-                    <p className="text-xs text-gray-500 mt-1">or click to browse (800+ files OK)</p>
-                    <p className="text-[10px] text-gray-400 mt-2">Filename format: LASTNAME_FIRSTNAME_ACCOUNT.pdf</p>
+                    <p className="font-medium text-gray-700">{mode === "monthly" ? "Drop the monthly PDF here" : "Drag & Drop PDFs here"}</p>
+                    <p className="text-xs text-gray-500 mt-1">{mode === "monthly" ? "one big PDF (2,000+ pages OK)" : "or click to browse (800+ files OK)"}</p>
+                    <p className="text-[10px] text-gray-400 mt-2">{mode === "monthly" ? "Split automatically by account number" : "Filename format: LASTNAME_FIRSTNAME_ACCOUNT.pdf"}</p>
                   </div>
                 )}
               </div>
 
-              {/* File Preview */}
-              {files.length > 0 && files.length <= 20 && (
+              {/* File Preview (split model only) */}
+              {mode === "split" && files.length > 0 && files.length <= 20 && (
                 <div className="mt-3 max-h-32 overflow-y-auto rounded-lg bg-gray-50 p-2 text-xs">
                   {files.map((f, i) => {
                     const p = parseFilename(f.name)
@@ -249,7 +312,7 @@ export default function AdminStatementsPage() {
                   })}
                 </div>
               )}
-              {files.length > 20 && <p className="mt-2 text-xs text-gray-500">Showing count only for {files.length} files</p>}
+              {mode === "split" && files.length > 20 && <p className="mt-2 text-xs text-gray-500">Showing count only for {files.length} files</p>}
 
               {/* Progress Bar */}
               {uploading && (
@@ -291,7 +354,9 @@ export default function AdminStatementsPage() {
               {/* Upload Button */}
               <button onClick={handleUpload} disabled={uploading || files.length === 0 || !billingPeriod}
                 className="mt-4 w-full h-11 rounded-lg bg-emerald-700 font-medium text-white hover:bg-emerald-800 disabled:opacity-50 flex items-center justify-center gap-2">
-                {uploading ? `Uploading ${progress.current}/${progress.total}...` : `Upload ${files.length} Statement${files.length !== 1 ? "s" : ""}`}
+                {uploading
+                  ? (mode === "monthly" ? (progress.name || "Working…") : `Uploading ${progress.current}/${progress.total}...`)
+                  : (mode === "monthly" ? "Upload & index monthly PDF" : `Upload ${files.length} Statement${files.length !== 1 ? "s" : ""}`)}
               </button>
             </div>
           </div>
