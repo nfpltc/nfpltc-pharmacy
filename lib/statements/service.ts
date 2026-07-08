@@ -22,6 +22,15 @@ export interface IndexedCustomer {
   start_page: number
   end_page: number
   pages: number
+  // Financial/aging fields (from the summary row) — null on older service versions.
+  previous_balance?: number | null
+  charges?: number | null
+  payments?: number | null
+  balance?: number | null
+  over_30?: number | null
+  over_60?: number | null
+  over_90?: number | null
+  over_120?: number | null
 }
 export interface IndexResult {
   meta: { total_pages: number; customers: number; month_ym: string | null; month_label: string | null }

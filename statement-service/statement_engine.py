@@ -23,6 +23,18 @@ def _open(data_or_path, password=None):
     return reader
 
 
+# Financial/aging fields captured from each customer's summary page.
+FIN_KEYS = ("over_30", "over_60", "over_90", "over_120",
+            "previous_balance", "payments", "charges", "balance")
+
+
+def _money(tok):
+    try:
+        return float(tok.replace("$", "").replace(",", "").replace("−", "-").strip())
+    except Exception:
+        return None
+
+
 def _page_fields(text, page_index):
     acct = re.search(r"Account Number:\s*(\S+)", text)
     account_number = acct.group(1) if acct else None
@@ -48,6 +60,17 @@ def _page_fields(text, page_index):
             last_name, first_name = [p.strip() for p in clean.split(",", 1)]
         else:
             last_name = clean
+    # Aging / financial summary row (present on the customer's summary page):
+    #   "Over 30 Over 60 Over 90 Over 120 Previous Payments Charges Balance"
+    #   followed by 8 dollar values in that exact order.
+    aging = {}
+    for i, l in enumerate(lines):
+        if l.startswith("Over 30") and "Over 120" in l and i + 1 < len(lines):
+            nums = re.findall(r"-?\$?-?[\d,]+\.\d{2}", lines[i + 1])
+            if len(nums) >= 8:
+                v = [_money(x) for x in nums[:8]]
+                aging = dict(zip(FIN_KEYS, v))
+            break
     return {
         "account_number": account_number,
         "first_name": first_name,
@@ -55,6 +78,7 @@ def _page_fields(text, page_index):
         "facility": facility,
         "bill_date": bill_date,
         "amount_due": amount_due,
+        **aging,
     }
 
 
@@ -93,11 +117,17 @@ def build_index(data_or_path, password=None):
                 "start_page": i,
                 "end_page": i,
                 "pages": 1,
+                **{k: None for k in FIN_KEYS},
             }
             customers.append(current)
         elif current is not None:
             current["end_page"] = i
             current["pages"] = current["end_page"] - current["start_page"] + 1
+        # Financials live on the summary page (which for multi-page customers may
+        # be a later page), so capture them wherever the aging row appears.
+        if current is not None and "balance" in f:
+            for k in FIN_KEYS:
+                current[k] = f[k]
 
     meta = {"total_pages": n, "customers": len(customers),
             "month_ym": month_ym, "month_label": month_label}
