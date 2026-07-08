@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
 
     // Build query — case-insensitive on names, exact match on account
     let query = sb.from("customer_statements")
-      .select("id, first_name, last_name, account_number, billing_period, file_path, file_name, bill_date, amount_due")
+      .select("id, first_name, last_name, account_number, billing_period, file_path, file_name, bill_date, amount_due, bulk_batch_id")
       .order("billing_period", { ascending: false })
 
     if (lastName)  query = query.ilike("last_name", `%${lastName}%`)
@@ -80,12 +80,16 @@ export async function GET(req: NextRequest) {
     const results = await Promise.all(
       (data || []).map(async (s: any) => {
         if (s.file_path) {
+          // Legacy pre-split statements — a stored per-customer PDF.
           try {
             const { data: signed } = await sb.storage
               .from("customer-statements")
               .createSignedUrl(s.file_path, 3600)
             s.file_url = signed?.signedUrl || null
           } catch { s.file_url = null }
+        } else if (s.bulk_batch_id) {
+          // Bulk statements — extracted on demand from the month's bulk PDF.
+          s.file_url = `/api/statements/extract?id=${s.id}`
         }
         return s
       })

@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
     // Build the filtered query — count: 'exact' gives us total rows for pagination UI
     let q = sb
       .from("customer_statements")
-      .select("id, first_name, last_name, account_number, billing_period, file_path, file_name, bill_date, amount_due, created_at", { count: "exact" })
+      .select("id, first_name, last_name, account_number, billing_period, file_path, file_name, bill_date, amount_due, created_at, bulk_batch_id", { count: "exact" })
       .order("last_name", { ascending: true })
       .order("first_name", { ascending: true })
       .range(from, to)
