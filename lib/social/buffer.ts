@@ -115,8 +115,9 @@ export async function createPost(opts: {
   imageUrl?: string
   dueAt?: string
   schedulingType?: "automatic" | "notification"
+  dryRun?: boolean
   token?: string
-}): Promise<{ ok: boolean; id?: string; error?: string }> {
+}): Promise<{ ok: boolean; id?: string; error?: string; input?: any }> {
   // Buffer's CreatePostInput REQUIRES channelId, mode, schedulingType, and a
   // (possibly empty) non-null assets list — omitting the last two is what made
   // Buffer reject the post as 'input must not be null'. Verified via schema
@@ -133,6 +134,9 @@ export async function createPost(opts: {
   }
   if (opts.mode === "customScheduled" && opts.dueAt) input.dueAt = opts.dueAt
 
+  // Dry run: return the exact input we would send, without calling Buffer.
+  if (opts.dryRun) return { ok: true, input }
+
   const query = `mutation($input: CreatePostInput!) {
     createPost(input: $input) {
       __typename
@@ -147,9 +151,9 @@ export async function createPost(opts: {
   }`
   const { data, errors, status } = await bufferGql(query, { input }, opts.token)
   if (status !== 200 || errors) {
-    return { ok: false, error: errors ? JSON.stringify(errors) : `Buffer HTTP ${status}` }
+    return { ok: false, error: errors ? JSON.stringify(errors) : `Buffer HTTP ${status}`, input }
   }
   const res = (data as any)?.createPost
   if (res?.__typename === "PostActionSuccess") return { ok: true, id: res.post?.id }
-  return { ok: false, error: res?.message || res?.__typename || "Buffer rejected the post" }
+  return { ok: false, error: res?.message || res?.__typename || "Buffer rejected the post", input }
 }
