@@ -120,6 +120,66 @@ export function renderStatementEmail(p: StatementEmailParams) {
   return { subject, html, text }
 }
 
+// Past-due reminder. Same brand + link + unsubscribe as the statement email,
+// but a "you have a past-due balance, please view your statement" message.
+// HIPAA-safe: NO amount, account number, or drug names.
+export function renderOverdueEmail(p: StatementEmailParams) {
+  const pharmacyName = p.pharmacyName || "North Falmouth Pharmacy"
+  const phone = p.pharmacyPhone || "(508) 564-4459"
+  const friendly = (p.firstName || "").trim()
+    .split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ")
+
+  const subject = `A past-due balance on your ${pharmacyName} account`
+
+  const text = [
+    `Hi ${friendly},`, ``,
+    `Our records show a past-due balance on your ${pharmacyName} account.`,
+    `Please review your latest statement and arrange payment at your convenience.`, ``,
+    `View your statement: ${p.statementsUrl}`, ``,
+    `When you click the link, you'll be asked for your first name, last name, and account number.`, ``,
+    `If you've already paid, thank you — please disregard this notice.`,
+    `Questions? Call ${phone} — we're happy to help.`, ``,
+    `— ${pharmacyName}`, ``, `---`,
+    `To unsubscribe: ${p.unsubscribeUrl}`,
+  ].join("\n")
+
+  const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" /><title>${escapeHtml(subject)}</title></head>
+<body style="margin:0;padding:0;background:#F7F5EF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#1f2937;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#F7F5EF;padding:24px 0;"><tr><td align="center">
+    <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="width:560px;max-width:100%;background:#ffffff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08);overflow:hidden;">
+      <tr><td style="background:linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%);padding:24px 28px;color:#ffffff;">
+        <div style="font-size:20px;font-weight:700;letter-spacing:0.2px;">${escapeHtml(pharmacyName)}</div>
+        <div style="font-size:12px;opacity:0.9;margin-top:2px;">Long Term Care Pharmacy</div>
+      </td></tr>
+      <tr><td style="padding:32px 28px 24px;">
+        <p style="margin:0 0 16px;font-size:16px;line-height:1.5;">Hi ${escapeHtml(friendly) || "there"},</p>
+        <div style="margin:0 0 20px;padding:12px 16px;background:#FEF3C7;border-left:4px solid #F59E0B;border-radius:6px;font-size:15px;line-height:1.5;color:#92400E;">
+          Our records show a <strong>past-due balance</strong> on your account.
+        </div>
+        <p style="margin:0 0 20px;font-size:16px;line-height:1.55;">Please review your latest statement and arrange payment at your convenience.</p>
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 24px;"><tr><td style="border-radius:8px;background:#0B7C79;">
+          <a href="${escapeAttr(p.statementsUrl)}" style="display:inline-block;padding:13px 22px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;">View Your Statement &nbsp;&rarr;</a>
+        </td></tr></table>
+        <p style="margin:0 0 18px;font-size:14px;line-height:1.55;color:#4b5563;">When you click the button, you'll be asked for your first name, last name, and account number.</p>
+        <div style="margin-top:24px;padding-top:20px;border-top:1px solid #e5e7eb;font-size:14px;line-height:1.55;color:#4b5563;">
+          <p style="margin:0 0 6px;">If you've already paid, thank you — please disregard this notice.</p>
+          <p style="margin:0;">Questions? Call <strong style="color:#0B7C79;">${escapeHtml(phone)}</strong> — we're happy to help.</p>
+        </div>
+      </td></tr>
+      <tr><td style="background:#f9fafb;padding:16px 28px;font-size:12px;line-height:1.5;color:#6b7280;">
+        <div style="margin-bottom:8px;"><strong style="color:#374151;">${escapeHtml(pharmacyName)}</strong></div>
+        <div>You received this because you are subscribed to account notifications.</div>
+        <div style="margin-top:4px;"><a href="${escapeAttr(p.unsubscribeUrl)}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a></div>
+      </td></tr>
+    </table>
+    <div style="margin-top:12px;font-size:11px;color:#9ca3af;">This email contains no prescription, diagnosis, or payment amounts.</div>
+  </td></tr></table>
+</body></html>`
+
+  return { subject, html, text }
+}
+
 function escapeHtml(s: string): string {
   return String(s || "")
     .replace(/&/g, "&amp;")
