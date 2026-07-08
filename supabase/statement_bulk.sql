@@ -24,9 +24,11 @@ alter table public.customer_statements
   add column if not exists start_page int,
   add column if not exists end_page int;
 
--- Bulk rows have no stored per-customer file (extracted on demand), so file_path
--- must be allowed to be null.
-alter table public.customer_statements alter column file_path drop not null;
+-- Bulk rows don't always have a stored file / amount / bill date, so these
+-- columns (built NOT NULL for the old model) must allow null.
+alter table public.customer_statements alter column file_path  drop not null;
+alter table public.customer_statements alter column amount_due drop not null;
+alter table public.customer_statements alter column bill_date  drop not null;
 
 create index if not exists customer_statements_batch_idx
   on public.customer_statements (bulk_batch_id);
