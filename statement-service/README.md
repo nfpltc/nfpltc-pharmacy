@@ -1,3 +1,13 @@
+---
+title: NFP Statement Service
+emoji: 📄
+colorFrom: green
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # NFP Statement Service
 
 Python sidecar that does the heavy PDF work for the pharmacy statement feature —
