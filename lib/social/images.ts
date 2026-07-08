@@ -40,19 +40,31 @@ export async function falImage(prompt: string): Promise<ImageResult | { error: s
 
 export async function unsplashImage(query: string): Promise<ImageResult | { error: string }> {
   if (!UNSPLASH_KEY) return { error: "UNSPLASH_ACCESS_KEY not configured." }
+  // A specific phrase like "pharmacy counter" can return zero results, especially
+  // with an orientation filter. Try the phrase, then progressively broader terms,
+  // and drop the squarish filter after the first attempt.
+  const base = (query || "").trim()
+  const firstWord = base.split(/\s+/)[0] || ""
+  const tries = [...new Set([base, firstWord, "pharmacy", "healthcare", "health"].filter(Boolean))]
   try {
-    const r = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query || "health")}&per_page=10&orientation=squarish`,
-      { headers: { Authorization: `Client-ID ${UNSPLASH_KEY}` } },
-    )
-    if (!r.ok) return { error: `Unsplash ${r.status}` }
-    const d = await r.json()
-    const results: any[] = d?.results || []
-    if (!results.length) return { error: `No Unsplash photo for "${query}".` }
-    const pick = results[Math.floor(Math.random() * Math.min(results.length, 10))]
-    const url = pick?.urls?.regular
-    if (!url) return { error: "Unsplash returned no usable image." }
-    return { url, provider: "unsplash", credit: pick?.user?.name, creditLink: pick?.links?.html }
+    for (let i = 0; i < tries.length; i++) {
+      const orient = i === 0 ? "&orientation=squarish" : ""
+      const r = await fetch(
+        `https://api.unsplash.com/search/photos?query=${encodeURIComponent(tries[i])}&per_page=10${orient}`,
+        { headers: { Authorization: `Client-ID ${UNSPLASH_KEY}` } },
+      )
+      if (!r.ok) {
+        if (i === tries.length - 1) return { error: `Unsplash ${r.status}` }
+        continue
+      }
+      const d = await r.json()
+      const results: any[] = d?.results || []
+      if (!results.length) continue
+      const pick = results[Math.floor(Math.random() * Math.min(results.length, 10))]
+      const url = pick?.urls?.regular
+      if (url) return { url, provider: "unsplash", credit: pick?.user?.name, creditLink: pick?.links?.html }
+    }
+    return { error: `No Unsplash photo for "${base}" (tried broader terms too).` }
   } catch (e: any) {
     return { error: e.message || "Unsplash request failed" }
   }
