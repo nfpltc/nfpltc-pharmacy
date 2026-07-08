@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import {
   Wallet, TrendingUp, AlertTriangle, Building2, Loader2, Plus, Trash2, DollarSign,
 } from "lucide-react"
@@ -73,9 +74,14 @@ export default function FinancePage() {
             <p className="text-sm text-gray-500">Revenue, collections, and overdue — from your monthly statements.</p>
           </div>
         </div>
-        <select value={sel} onChange={(e) => setSel(e.target.value)} className="h-11 rounded-lg border border-gray-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
-          {months.map((m) => <option key={m.month_ym} value={m.month_ym}>{label(m.month_ym)}</option>)}
-        </select>
+        <div className="flex items-center gap-2">
+          <Link href="/admin/finance/overdue" className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700 hover:bg-red-100">
+            <AlertTriangle className="h-4 w-4" /> Overdue customers
+          </Link>
+          <select value={sel} onChange={(e) => setSel(e.target.value)} className="h-11 rounded-lg border border-gray-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            {months.map((m) => <option key={m.month_ym} value={m.month_ym}>{label(m.month_ym)}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* KPI cards */}
