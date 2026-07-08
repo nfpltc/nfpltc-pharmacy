@@ -16,6 +16,13 @@ export async function POST(req: NextRequest) {
   }
   const mode = (["shareNow", "addToQueue", "shareNext", "customScheduled"].includes(b.mode) ? b.mode : "shareNow") as BufferMode
   const r = await createPost({ channelId, text, imageUrl: b.imageUrl || undefined, mode, dueAt: b.dueAt })
-  if (!r.ok) return NextResponse.json({ error: r.error }, { status: 502 })
+  if (!r.ok) {
+    // Echo the shape we sent (never the text/token) so a Buffer rejection can be
+    // told apart from a genuinely empty input on our side.
+    return NextResponse.json({
+      error: r.error,
+      sent: { channelId, textLength: text.length, mode, hasImage: Boolean(b.imageUrl) },
+    }, { status: 502 })
+  }
   return NextResponse.json({ ok: true, id: r.id })
 }
