@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   Linkedin, Twitter, Instagram, Sparkles, Wand2, Image as ImageIcon, Send,
   Clock, CalendarClock, Loader2, Trash2, RefreshCw, Save, Share2, AlertCircle,
-  CheckCircle2, Play, FolderOpen,
+  CheckCircle2, Play, FolderOpen, Upload,
 } from "lucide-react"
 
 type Platform = "linkedin" | "x" | "instagram"
@@ -33,6 +33,24 @@ const REWRITES: { label: string; instr: string }[] = [
 const TONES = ["Warm & friendly", "Professional", "Playful", "Inspirational", "Educational"]
 const DRAFTS_KEY = "nfp_social_drafts"
 
+// Downscale an image file in the browser (max 1600px long edge, JPEG) so uploads
+// stay small and under Vercel's request-body limit, and are right-sized for social.
+async function downscaleImage(file: File, max = 1600, quality = 0.85): Promise<Blob> {
+  const bitmap = await createImageBitmap(file)
+  const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height))
+  const w = Math.max(1, Math.round(bitmap.width * scale))
+  const h = Math.max(1, Math.round(bitmap.height * scale))
+  const canvas = document.createElement("canvas")
+  canvas.width = w; canvas.height = h
+  const ctx = canvas.getContext("2d")
+  if (!ctx) throw new Error("Canvas not supported")
+  ctx.drawImage(bitmap, 0, 0, w, h)
+  bitmap.close?.()
+  return await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Could not encode image"))), "image/jpeg", quality),
+  )
+}
+
 export default function SocialEditor() {
   const [topic, setTopic] = useState("")
   const [tone, setTone] = useState(TONES[0])
@@ -46,6 +64,12 @@ export default function SocialEditor() {
   const [imageProvider, setImageProvider] = useState<"auto" | "fal" | "unsplash">("auto")
   const [imgLoading, setImgLoading] = useState(false)
 
+  // Saved image library (uploads + kept AI/Unsplash images)
+  const [library, setLibrary] = useState<{ id: string; url: string; filename?: string; source?: string }[]>([])
+  const [showLibrary, setShowLibrary] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
   const [channels, setChannels] = useState<Channel[]>([])
   const [channelsError, setChannelsError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Record<Platform, string>>({ linkedin: "", x: "", instagram: "" })
@@ -58,7 +82,7 @@ export default function SocialEditor() {
   const [msg, setMsg] = useState<Msg>(null)
   const [drafts, setDrafts] = useState<any[]>([])
 
-  useEffect(() => { loadChannels(); loadQueue(); setDrafts(readDrafts()) }, [])
+  useEffect(() => { loadChannels(); loadQueue(); loadLibrary(); setDrafts(readDrafts()) }, [])
 
   async function loadChannels() {
     try {
@@ -120,6 +144,55 @@ export default function SocialEditor() {
       } else setMsg({ type: "error", text: d.error || "Image generation failed." })
     } catch { setMsg({ type: "error", text: "Image generation failed." }) }
     finally { setImgLoading(false) }
+  }
+
+  // ── Saved image library ────────────────────────────────────────────────
+  async function loadLibrary() {
+    try {
+      const res = await fetch("/api/admin/social/library")
+      const d = await res.json()
+      if (res.ok) setLibrary(d.images || [])
+    } catch { /* ignore */ }
+  }
+
+  // Upload from the admin's device. We downscale in the browser first so big
+  // phone photos stay under Vercel's request limit and are right-sized for social.
+  async function uploadImage(file: File) {
+    setUploading(true); setMsg(null)
+    try {
+      const blob = await downscaleImage(file)
+      const fd = new FormData()
+      fd.append("file", blob, (file.name || "image").replace(/\.[^.]+$/, "") + ".jpg")
+      const res = await fetch("/api/admin/social/library", { method: "POST", body: fd })
+      const d = await res.json()
+      if (!res.ok) { setMsg({ type: "error", text: d.error || "Upload failed." }); return }
+      setImageUrl(d.url); setImageCredit(null)
+      loadLibrary()
+      setMsg({ type: "success", text: "Image uploaded and saved to your library." })
+    } catch (e: any) {
+      setMsg({ type: "error", text: e?.message || "Could not process that image." })
+    } finally { setUploading(false) }
+  }
+
+  // Persist the current image (e.g. a generated AI/Unsplash one) into the library.
+  async function saveCurrentToLibrary() {
+    if (!imageUrl) return
+    setUploading(true); setMsg(null)
+    try {
+      const res = await fetch("/api/admin/social/library", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: imageUrl, source: imageProvider === "unsplash" ? "unsplash" : "ai" }),
+      })
+      const d = await res.json()
+      if (!res.ok) { setMsg({ type: "error", text: d.error || "Could not save image." }); return }
+      loadLibrary()
+      setMsg({ type: "success", text: "Saved to your library." })
+    } catch { setMsg({ type: "error", text: "Could not save image." }) }
+    finally { setUploading(false) }
+  }
+
+  async function deleteLibraryImage(id: string) {
+    try { await fetch(`/api/admin/social/library?id=${id}`, { method: "DELETE" }); loadLibrary() } catch { /* ignore */ }
   }
 
   async function rewrite(platform: Platform, instr: string) {
@@ -262,29 +335,76 @@ export default function SocialEditor() {
         </div>
 
         {/* Image row */}
-        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-gray-100 bg-gray-50/60 p-3">
-          {imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={imageUrl} alt="" className="h-20 w-20 rounded-lg object-cover" />
-          ) : (
-            <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-dashed border-gray-300 text-gray-400"><ImageIcon className="h-5 w-5" /></div>
+        <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50/60 p-3">
+          <div className="flex flex-wrap items-start gap-3">
+            {imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={imageUrl} alt="" className="h-20 w-20 rounded-lg object-cover" />
+            ) : (
+              <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-dashed border-gray-300 text-gray-400"><ImageIcon className="h-5 w-5" /></div>
+            )}
+            <div className="flex-1 min-w-[220px] space-y-2">
+              <input value={imageQuery} onChange={(e) => setImageQuery(e.target.value)} placeholder="image search words (Unsplash)"
+                className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              <input value={imagePrompt} onChange={(e) => setImagePrompt(e.target.value)} placeholder="AI image prompt (fal.ai)"
+                className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              {imageCredit && <p className="text-[11px] text-gray-400">Photo: {imageCredit.name}{imageCredit.link ? " · Unsplash" : ""}</p>}
+            </div>
+            <div className="flex flex-col gap-2">
+              {/* Create with AI / find on Unsplash */}
+              <div className="flex items-center gap-2">
+                <select value={imageProvider} onChange={(e) => setImageProvider(e.target.value as any)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs">
+                  <option value="auto">Auto</option><option value="fal">AI (fal.ai)</option><option value="unsplash">Unsplash</option>
+                </select>
+                <button onClick={genImage} disabled={imgLoading} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-600 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60">
+                  {imgLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />} Image
+                </button>
+              </div>
+              {/* Upload your own / pick from saved */}
+              <div className="flex flex-wrap items-center gap-2">
+                <input ref={fileRef} type="file" accept="image/*" className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f); e.target.value = "" }} />
+                <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60">
+                  {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload
+                </button>
+                <button onClick={() => { if (!showLibrary) loadLibrary(); setShowLibrary((v) => !v) }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                  <FolderOpen className="h-3.5 w-3.5" /> Saved ({library.length})
+                </button>
+                {imageUrl && (
+                  <button onClick={saveCurrentToLibrary} disabled={uploading} title="Save this image to your library"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60">
+                    <Save className="h-3.5 w-3.5" /> Save
+                  </button>
+                )}
+                {imageUrl && <button onClick={() => { setImageUrl(""); setImageCredit(null) }} title="Remove image" className="text-gray-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>}
+              </div>
+            </div>
+          </div>
+
+          {/* Saved library gallery */}
+          {showLibrary && (
+            <div className="mt-3 border-t border-gray-100 pt-3">
+              {library.length === 0 ? (
+                <p className="text-xs text-gray-400">No saved images yet. Upload one, or generate/find an image and click <span className="font-medium">Save</span>.</p>
+              ) : (
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {library.map((img) => (
+                    <div key={img.id} className="group relative shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={img.url} alt={img.filename || ""} onClick={() => { setImageUrl(img.url); setImageCredit(null) }}
+                        className={`h-16 w-16 cursor-pointer rounded-lg object-cover ring-2 ${imageUrl === img.url ? "ring-emerald-500" : "ring-transparent hover:ring-gray-300"}`} />
+                      <button onClick={() => deleteLibraryImage(img.id)} title="Delete from library"
+                        className="absolute -right-1.5 -top-1.5 hidden rounded-full bg-white p-0.5 text-red-500 shadow ring-1 ring-gray-200 group-hover:block">
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
-          <div className="flex-1 min-w-[220px] space-y-2">
-            <input value={imageQuery} onChange={(e) => setImageQuery(e.target.value)} placeholder="image search words (Unsplash)"
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-            <input value={imagePrompt} onChange={(e) => setImagePrompt(e.target.value)} placeholder="AI image prompt (fal.ai)"
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-            {imageCredit && <p className="text-[11px] text-gray-400">Photo: {imageCredit.name}{imageCredit.link ? " · Unsplash" : ""}</p>}
-          </div>
-          <div className="flex items-center gap-2">
-            <select value={imageProvider} onChange={(e) => setImageProvider(e.target.value as any)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs">
-              <option value="auto">Auto</option><option value="fal">AI (fal.ai)</option><option value="unsplash">Unsplash</option>
-            </select>
-            <button onClick={genImage} disabled={imgLoading} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-600 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-60">
-              {imgLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />} Image
-            </button>
-            {imageUrl && <button onClick={() => { setImageUrl(""); setImageCredit(null) }} className="text-gray-400 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>}
-          </div>
         </div>
       </div>
 
