@@ -30,6 +30,11 @@ def _auth(authorization: str | None):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+@app.get("/")
+def root():
+    return {"service": "nfp-statement-service", "endpoints": ["/health", "/index", "/extract"]}
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "service": "nfp-statement-service"}
