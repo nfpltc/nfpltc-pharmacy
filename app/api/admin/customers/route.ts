@@ -45,6 +45,47 @@ export async function GET(req: NextRequest) {
       from += PAGE_SIZE
     }
 
+    // Overdue overlay — for each account use its OWN most recent statement
+    // month that carries financials (the same rule the customer detail card
+    // uses, so the list pill and the expanded card always agree). A month can
+    // have >1 row per account (one per facility); those are summed. Ordering by
+    // (account, period desc, id) makes the paginated tiling stable. Non-fatal
+    // if financials don't exist yet.
+    const overdueMap: Record<string, number> = {}
+    try {
+      const n = (v: any) => (v == null ? 0 : Number(v) || 0)
+      const latestByAccount: Record<string, { period: string; total: number }> = {}
+      for (let f = 0; f < 500_000; f += PAGE_SIZE) {
+        const { data, error } = await sb.from("customer_statements")
+          .select("account_number, billing_period, over_30, over_60, over_90, over_120")
+          .not("over_30", "is", null)
+          .order("account_number", { ascending: true })
+          .order("billing_period", { ascending: false })
+          .order("id", { ascending: true })
+          .range(f, f + PAGE_SIZE - 1)
+        if (error) break
+        for (const r of data || []) {
+          const t = n(r.over_30) + n(r.over_60) + n(r.over_90) + n(r.over_120)
+          const cur = latestByAccount[r.account_number]
+          if (!cur) latestByAccount[r.account_number] = { period: r.billing_period, total: t }
+          else if (r.billing_period === cur.period) cur.total += t          // same month, another facility → sum
+          else if (r.billing_period > cur.period) latestByAccount[r.account_number] = { period: r.billing_period, total: t }
+          // older month → ignore
+        }
+        if (!data || data.length < PAGE_SIZE) break
+      }
+      for (const [acct, v] of Object.entries(latestByAccount)) {
+        if (v.total > 0) overdueMap[acct] = v.total
+      }
+    } catch { /* financials not present — no badges */ }
+
+    let list = all.map((c) => ({
+      ...c,
+      total_overdue: overdueMap[c.account_number] ?? 0,
+      is_overdue: (overdueMap[c.account_number] ?? 0) > 0,
+    }))
+    if (filter === "overdue") list = list.filter((c) => c.is_overdue)
+
     // Quick summary stats for the header (whole table, not filtered)
     const { count: totalCount } = await sb.from("customers").select("*", { count: "exact", head: true })
     const { count: withEmailCount } = await sb
@@ -55,12 +96,13 @@ export async function GET(req: NextRequest) {
       .eq("email_opt_in", false)
 
     return NextResponse.json({
-      customers: all,
+      customers: list,
       stats: {
         total: totalCount ?? 0,
         with_email: withEmailCount ?? 0,
         no_email: (totalCount ?? 0) - (withEmailCount ?? 0),
         opted_out: optedOutCount ?? 0,
+        overdue: Object.keys(overdueMap).length,
       },
     })
   } catch (err: any) {

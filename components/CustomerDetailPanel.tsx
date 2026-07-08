@@ -1,6 +1,6 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
-import { Mail, FileText, Save, Loader2, MapPin, Phone, Calendar, StickyNote, Send, Sparkles, Wand2, Pill } from "lucide-react"
+import { Mail, FileText, Save, Loader2, MapPin, Phone, Calendar, StickyNote, Send, Sparkles, Wand2, Pill, AlertTriangle, CheckCircle2 } from "lucide-react"
 
 // Shown inline when an admin clicks a customer row to expand it.
 // Three sections: editable contact profile, statement history, email history.
@@ -41,6 +41,18 @@ interface EmailRow {
   sent_at: string | null
 }
 
+interface Overdue {
+  period: string
+  facility: string | null
+  over_30: number
+  over_60: number
+  over_90: number
+  over_120: number
+  total_overdue: number
+  balance: number | null
+  is_overdue: boolean
+}
+
 export default function CustomerDetailPanel({
   accountNumber,
   onSaved,
@@ -53,6 +65,8 @@ export default function CustomerDetailPanel({
   const [statements, setStatements] = useState<StatementRow[]>([])
   const [emailHistory, setEmailHistory] = useState<EmailRow[]>([])
   const [medTasks, setMedTasks] = useState<any[]>([])
+  const [overdue, setOverdue] = useState<Overdue | null>(null)
+  const [sendingReminder, setSendingReminder] = useState(false)
   const [error, setError] = useState("")
 
   // Editable form state (mirrors profile fields)
@@ -96,6 +110,32 @@ export default function CustomerDetailPanel({
   }
 
   const canEmail = Boolean(profile?.email && profile?.email_opt_in)
+
+  // Email a past-due reminder to just this customer (same engine + dedupe as the
+  // Money → Overdue bulk send, scoped to one account).
+  const sendReminder = async () => {
+    if (!overdue?.period) return
+    setSendingReminder(true)
+    setActionMsg("")
+    try {
+      const r = await fetch("/api/admin/finance/overdue/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: overdue.period, account_number: accountNumber }),
+      })
+      const d = await r.json()
+      if (!r.ok) { setActionMsg(d.error || "Could not send reminder"); return }
+      if (d.sent > 0) setActionMsg("Past-due reminder sent ✓")
+      else if (d.skipped > 0) setActionMsg("Already reminded this month — not re-sent")
+      else if (d.failed > 0) setActionMsg("Reminder failed to send")
+      else setActionMsg("No reminder sent — no eligible email on file")
+      fetchDetail()  // refresh email history
+    } catch {
+      setActionMsg("Network error")
+    } finally {
+      setSendingReminder(false)
+    }
+  }
 
   const sendBlog = async () => {
     setSendingBlog(true)
@@ -152,6 +192,7 @@ export default function CustomerDetailPanel({
       setProfile(d.profile)
       setStatements(d.statements || [])
       setEmailHistory(d.email_history || [])
+      setOverdue(d.overdue || null)
 
       // Fetch medication tasks for this account
       try {
@@ -287,6 +328,50 @@ export default function CustomerDetailPanel({
 
       {/* ── History (statements + emails) ───────────────────────────── */}
       <div className="space-y-5">
+        {/* Account balance / past-due — this account's most recent known
+            standing; the same rule powers the "Past due" pill on the list. */}
+        {overdue && (
+          overdue.is_overdue ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h4 className="flex items-center gap-2 text-sm font-semibold text-red-800">
+                  <AlertTriangle className="h-4 w-4" /> Past-Due Balance
+                </h4>
+                <span className="text-xs text-red-500">as of {formatPeriod(overdue.period)}</span>
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                <Aging label="30" value={overdue.over_30} />
+                <Aging label="60" value={overdue.over_60} />
+                <Aging label="90" value={overdue.over_90} />
+                <Aging label="120+" value={overdue.over_120} />
+              </div>
+              <div className="mt-2 flex items-center justify-between border-t border-red-200 pt-2">
+                <span className="text-xs font-medium text-red-700">Total past-due</span>
+                <span className="text-base font-semibold text-red-800">{usd(overdue.total_overdue)}</span>
+              </div>
+              <button
+                onClick={sendReminder}
+                disabled={!canEmail || sendingReminder}
+                title={canEmail ? "Email a past-due reminder to this customer" : "No subscribed email on file"}
+                className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-40"
+              >
+                {sendingReminder ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
+                Send past-due reminder
+              </button>
+              {!canEmail && (
+                <p className="mt-1 text-center text-[11px] text-red-500">
+                  {profile?.email ? "Customer opted out of emails." : "No email on file — add one above and save."}
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-700">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Account current — no past-due balance
+              {overdue.period ? ` as of ${formatPeriod(overdue.period)}` : ""}.
+            </div>
+          )
+        )}
+
         {/* Statements */}
         <div>
           <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
@@ -520,6 +605,23 @@ function Field({
         placeholder={placeholder}
         className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
       />
+    </div>
+  )
+}
+
+function usd(v: number): string {
+  return "$" + Math.round(v || 0).toLocaleString()
+}
+
+// One aging bucket cell inside the past-due card.
+function Aging({ label, value }: { label: string; value: number }) {
+  const has = value > 0
+  return (
+    <div className={`rounded-md border px-1 py-1.5 text-center ${has ? "border-red-200 bg-white" : "border-gray-100 bg-white/50"}`}>
+      <div className="text-[10px] uppercase text-gray-400">{label}</div>
+      <div className={`text-xs font-semibold tabular-nums ${has ? "text-red-700" : "text-gray-300"}`}>
+        {has ? usd(value) : "—"}
+      </div>
     </div>
   )
 }

@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect, useCallback, useRef } from "react"
 import Link from "next/link"
-import { ArrowLeft, Upload, UserPlus, Pencil, Trash2, Mail, MailX, Search, Send, Calendar, ChevronDown, ChevronRight } from "lucide-react"
+import { ArrowLeft, Upload, UserPlus, Pencil, Trash2, Mail, MailX, Search, Send, Calendar, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react"
 import StatementViewersTab from "@/components/StatementViewersTab"
 import CustomerDetailPanel from "@/components/CustomerDetailPanel"
 
@@ -16,6 +16,8 @@ interface Customer {
   notes: string | null
   created_at: string
   updated_at: string
+  total_overdue?: number
+  is_overdue?: boolean
 }
 
 interface Stats {
@@ -23,9 +25,12 @@ interface Stats {
   with_email: number
   no_email: number
   opted_out: number
+  overdue?: number
 }
 
-type FilterType = "all" | "with_email" | "no_email" | "opted_out"
+type FilterType = "all" | "with_email" | "no_email" | "opted_out" | "overdue"
+
+const usd = (v: number) => "$" + Math.round(v || 0).toLocaleString()
 
 export default function AdminCustomersPage() {
   // Top-level tabs: customer list vs. statement viewer audit log
@@ -174,6 +179,7 @@ export default function AdminCustomersPage() {
             <option value="with_email">With Email</option>
             <option value="no_email">Missing Email</option>
             <option value="opted_out">Opted Out</option>
+            <option value="overdue">Overdue{stats.overdue ? ` (${stats.overdue})` : ""}</option>
           </select>
         </div>
 
@@ -793,6 +799,14 @@ function CustomerRow({
               ? <ChevronDown className="h-4 w-4 text-gray-400" />
               : <ChevronRight className="h-4 w-4 text-gray-400" />}
             {c.last_name.toUpperCase()}, {c.first_name}
+            {c.is_overdue && (
+              <span
+                title={`Past-due balance: ${usd(c.total_overdue || 0)}`}
+                className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700"
+              >
+                <AlertTriangle className="h-3 w-3" /> Past due {usd(c.total_overdue || 0)}
+              </span>
+            )}
           </span>
         </td>
         <td className="px-4 py-3 text-gray-600">{c.account_number}</td>
