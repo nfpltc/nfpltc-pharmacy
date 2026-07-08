@@ -5,6 +5,24 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 30
 
+// GET /api/admin/buffer/post?channelId=&text=&mode=&image=1
+// DIAGNOSTIC dry-run: returns the exact input createPost would send to Buffer,
+// WITHOUT posting. Confirms which build is live and that required fields
+// (schedulingType, assets) are present. Remove with the introspect endpoint.
+export async function GET(req: NextRequest) {
+  const sp = new URL(req.url).searchParams
+  const mode = (["shareNow", "addToQueue", "shareNext", "customScheduled"].includes(sp.get("mode") || "")
+    ? sp.get("mode") : "shareNow") as BufferMode
+  const r = await createPost({
+    channelId: sp.get("channelId") || "DRY_RUN",
+    text: sp.get("text") || "dry run",
+    imageUrl: sp.get("image") ? "https://example.com/i.jpg" : undefined,
+    mode,
+    dryRun: true,
+  })
+  return NextResponse.json({ dryRun: true, input: r.input })
+}
+
 // POST /api/admin/buffer/post → post directly to Buffer.
 // Body: { channelId, text, imageUrl?, mode?, dueAt? }  (default mode shareNow)
 export async function POST(req: NextRequest) {
