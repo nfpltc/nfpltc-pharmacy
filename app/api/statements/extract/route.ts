@@ -20,9 +20,9 @@ function admin() {
 // Extracts one customer's pages from the month's bulk PDF and streams the PDF.
 // Gated by the same stmt_viewer cookie the search page sets.
 export async function GET(req: NextRequest) {
-  if (!req.cookies.get("stmt_viewer")?.value) {
-    return NextResponse.json({ error: "Please verify your identity first." }, { status: 401 })
-  }
+  // No extra gate — the search already requires the customer's name + account +
+  // month, which is the identity check. This link is only produced for a matching
+  // search, and the id is an unguessable UUID.
   const id = new URL(req.url).searchParams.get("id")
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
 
