@@ -4,8 +4,9 @@ import { MessageCircle, X, Send, Loader2, User, Bot, Phone } from "lucide-react"
 
 interface Msg { role: "user" | "assistant" | "admin"; content: string }
 
-export default function ChatWidget() {
+export default function ChatWidget({ landing = false }: { landing?: boolean }) {
   const [open, setOpen] = useState(false)
+  const [dismissed, setDismissed] = useState(false)
   const [chatEnabled, setChatEnabled] = useState<boolean | null>(null)
   const [chatVisible, setChatVisible] = useState<boolean | null>(null)
   const [messages, setMessages] = useState<Msg[]>([])
@@ -37,6 +38,11 @@ export default function ChatWidget() {
         setChatVisible(true)
       }
     })()
+  }, [])
+
+  // Restore "dismissed" — the user closed the icon; keep it hidden this session.
+  useEffect(() => {
+    try { if (sessionStorage.getItem("nfpltc_chat_dismissed")) setDismissed(true) } catch {}
   }, [])
 
   // Show popup greeting after 3 seconds (once per session)
@@ -179,33 +185,45 @@ export default function ChatWidget() {
     setShowEscForm(false)
   }
 
-  // Hidden = bubble doesn't appear at all
+  // Hidden by admin, or dismissed by the user for this session.
   if (chatVisible === null || chatVisible === false) return null
+  if (dismissed) return null
 
   if (!open) {
     return (
       <div className="fixed bottom-6 right-6 z-50 flex items-end gap-3">
-        {/* Persistent help text — always visible */}
-        <button
-          onClick={() => { setShowPopup(false); setOpen(true) }}
-          className="mb-1 rounded-2xl bg-white px-4 py-2.5 shadow-lg border border-gray-100 text-left hover:shadow-xl transition-shadow cursor-pointer"
-          style={{ animation: "fadeSlideUp 0.5s ease-out" }}
-        >
-          <p className="text-sm font-semibold text-gray-800">
-            <span style={{ display: "inline-block", animation: "wave 1.5s ease-in-out infinite" }}>👋</span> Hi! Need any help?
-          </p>
-          <p className="mt-0.5 text-xs text-gray-500">Chat with us about prescriptions, deliveries & more</p>
-        </button>
+        {/* Greeting popup — only on the landing page */}
+        {landing && (
+          <button
+            onClick={() => { setShowPopup(false); setOpen(true) }}
+            className="mb-1 rounded-2xl bg-white px-4 py-2.5 shadow-lg border border-gray-100 text-left hover:shadow-xl transition-shadow cursor-pointer"
+            style={{ animation: "fadeSlideUp 0.5s ease-out" }}
+          >
+            <p className="text-sm font-semibold text-gray-800">
+              <span style={{ display: "inline-block", animation: "wave 1.5s ease-in-out infinite" }}>👋</span> Hi! Need any help?
+            </p>
+            <p className="mt-0.5 text-xs text-gray-500">Chat with us about prescriptions, deliveries & more</p>
+          </button>
+        )}
 
-        {/* Dancing pill button */}
-        <button
-          onClick={() => { setShowPopup(false); setOpen(true) }}
-          className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full shadow-lg hover:scale-110 transition-transform"
-          style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}
-          aria-label="Open chat"
-        >
-          <span className="text-2xl" style={{ animation: "pillDance 2s ease-in-out infinite", display: "inline-block" }}>💊</span>
-        </button>
+        {/* Pill button + a close (×) to dismiss the widget on any page */}
+        <div className="relative">
+          <button
+            onClick={() => { setShowPopup(false); setOpen(true) }}
+            className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full shadow-lg hover:scale-110 transition-transform"
+            style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)" }}
+            aria-label="Open chat"
+          >
+            <span className="text-2xl" style={{ animation: "pillDance 2s ease-in-out infinite", display: "inline-block" }}>💊</span>
+          </button>
+          <button
+            onClick={() => { setDismissed(true); try { sessionStorage.setItem("nfpltc_chat_dismissed", "1") } catch {} }}
+            aria-label="Hide chat"
+            className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-white text-gray-500 shadow ring-1 ring-gray-200 hover:text-red-600"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
 
         {/* CSS animations */}
         <style>{`
@@ -302,7 +320,7 @@ export default function ChatWidget() {
                 {m.role === "admin" ? <User className="h-3.5 w-3.5 text-blue-600" /> : <Bot className="h-3.5 w-3.5 text-[#0B7C79]" />}
               </div>
             )}
-            <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
+            <div className={`max-w-[80%] whitespace-pre-line rounded-2xl px-3 py-2 text-sm leading-relaxed ${
               m.role === "user"
                 ? "bg-[#0B7C79] text-white"
                 : m.role === "admin"
