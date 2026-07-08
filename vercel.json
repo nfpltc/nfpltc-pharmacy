@@ -1,5 +1,5 @@
 {
   "crons": [
-    { "path": "/api/cron/social-queue", "schedule": "*/5 * * * *" }
+    { "path": "/api/cron/social-queue", "schedule": "0 13 * * *" }
   ]
 }
