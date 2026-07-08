@@ -16,14 +16,21 @@ function admin() {
 }
 const num = (v: any) => (v == null ? 0 : Number(v) || 0)
 
-// POST /api/admin/finance/overdue/send  { month: 'YYYY-MM', bucket: 'all'|'30'|'60'|'90'|'120' }
+// POST /api/admin/finance/overdue/send
+//   { month: 'YYYY-MM', bucket?: 'all'|'30'|'60'|'90'|'120', account_number?: string }
 // Emails a past-due reminder (with the statement link) to overdue customers who
-// have an email and aren't opted out. Deduped per month+bucket via
-// statement_email_log (billing_period = 'YYYY-MM:overdue[:bucket]').
+// have an email and aren't opted out. Deduped to ONE reminder per account per
+// month via statement_email_log (billing_period = 'YYYY-MM:overdue'), so a
+// customer can't be dunned twice in a month across different bucket campaigns
+// or the per-customer button. When account_number is given, sends to just that
+// one customer (bucket ignored) — used by the button on the admin customer page.
 export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}))
   const month = String(b.month || "")
-  const bucket = ["30", "60", "90", "120"].includes(b.bucket) ? b.bucket : "all"
+  const account = typeof b.account_number === "string" && b.account_number.trim() ? b.account_number.trim() : null
+  // Single-customer sends ignore the bucket (send if they have any past-due).
+  // The dedupe key is bucket-independent (below), so no double-dunning.
+  const bucket = account ? "all" : (["30", "60", "90", "120"].includes(b.bucket) ? b.bucket : "all")
   if (!/^\d{4}-\d{2}$/.test(month)) return NextResponse.json({ error: "Pick a month" }, { status: 400 })
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY
@@ -36,26 +43,35 @@ export async function POST(req: NextRequest) {
   const sb = admin()
   const resend = new Resend(RESEND_API_KEY)
 
-  // Overdue statement rows for the month.
+  // Overdue statement rows for the month (scoped to one account when single-send).
   const rows: any[] = []
   const PAGE = 1000
   for (let f = 0; f < 100_000; f += PAGE) {
-    const { data, error } = await sb.from("customer_statements")
+    let q = sb.from("customer_statements")
       .select("first_name, last_name, account_number, over_30, over_60, over_90, over_120")
       .eq("billing_period", month)
       .or("over_30.gt.0,over_60.gt.0,over_90.gt.0,over_120.gt.0")
-      .range(f, f + PAGE - 1)
+      .order("account_number", { ascending: true })
+    if (account) q = q.eq("account_number", account)
+    const { data, error } = await q.range(f, f + PAGE - 1)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     rows.push(...(data || []))
     if (!data || data.length < PAGE) break
   }
-  // Email map.
+  // Email map — just the one customer for single-send, else the whole table.
   const emails: Record<string, { email: string | null; opted_out: boolean }> = {}
-  for (let f = 0; f < 100_000; f += PAGE) {
-    const { data } = await sb.from("customers").select("account_number, email, email_opt_in").range(f, f + PAGE - 1)
-    if (!data?.length) break
-    for (const c of data) emails[c.account_number] = { email: c.email || null, opted_out: c.email_opt_in === false }
-    if (data.length < PAGE) break
+  if (account) {
+    const { data } = await sb.from("customers")
+      .select("account_number, email, email_opt_in").eq("account_number", account).maybeSingle()
+    if (data) emails[data.account_number] = { email: data.email || null, opted_out: data.email_opt_in === false }
+  } else {
+    for (let f = 0; f < 100_000; f += PAGE) {
+      const { data } = await sb.from("customers").select("account_number, email, email_opt_in")
+        .order("account_number", { ascending: true }).range(f, f + PAGE - 1)
+      if (!data?.length) break
+      for (const c of data) emails[c.account_number] = { email: c.email || null, opted_out: c.email_opt_in === false }
+      if (data.length < PAGE) break
+    }
   }
 
   const bucketKey = ({ "30": "over_30", "60": "over_60", "90": "over_90", "120": "over_120" } as any)[bucket]
@@ -66,7 +82,9 @@ export async function POST(req: NextRequest) {
     // one email per account (a customer may have >1 statement row)
     .filter((r, i, a) => a.findIndex((x) => x.account_number === r.account_number) === i)
 
-  const logPeriod = `${month}:overdue${bucket !== "all" ? ":" + bucket : ""}`
+  // Bucket-independent dedupe key: one overdue reminder per account per month,
+  // no matter which bucket campaign or the per-customer button triggered it.
+  const logPeriod = `${month}:overdue`
   const label = formatBillingPeriodLabel(month)
   let sent = 0, failed = 0, skipped = 0
 
