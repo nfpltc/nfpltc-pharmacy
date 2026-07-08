@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabaseClient"
 interface Statement {
   id: string; first_name: string; last_name: string; account_number: string
   billing_period: string; file_path: string; file_name: string; file_url?: string
-  amount_due?: number; created_at: string
+  amount_due?: number; created_at: string; bulk_batch_id?: string | null
 }
 
 // Parse filename: LASTNAME_FIRSTNAME_MIDDLENAME_ACCOUNT.pdf
@@ -505,6 +505,14 @@ export default function AdminStatementsPage() {
                           >
                             {openingId === s.id ? "Opening..." : "📄 View"}
                           </button>
+                        ) : s.bulk_batch_id ? (
+                          <a
+                            href={`/api/admin/statements/extract?id=${s.id}`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-100"
+                          >
+                            📄 View
+                          </a>
                         ) : (
                           <span className="text-xs text-gray-400">—</span>
                         )}
