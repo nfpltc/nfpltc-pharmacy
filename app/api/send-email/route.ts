@@ -1,6 +1,7 @@
 import { Resend } from "resend"
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { sendFormConfirmation } from "@/lib/form-confirmation-email"
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -36,6 +37,9 @@ export async function POST(req: Request) {
         })
       }
     } catch (dbErr) { console.error("Supabase save error (contact):", dbErr) }
+
+    // Confirmation to the person who wrote in (non-fatal).
+    await sendFormConfirmation({ to: email, firstName, formName: "message" })
 
     return NextResponse.json({ success: true })
   } catch (error) {

@@ -5,6 +5,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 import { readFile } from "fs/promises"
 import path from "path"
 import { createClient } from "@supabase/supabase-js"
+import { sendFormConfirmation } from "@/lib/form-confirmation-email"
 
 // Force Node runtime (needed for fs/path/pdf-lib)
 export const runtime = "nodejs"
@@ -160,6 +161,13 @@ export async function POST(req: Request) {
         }
       }
     } catch (dbErr) { console.error("Supabase save error (enrollment):", dbErr) }
+
+    // Confirmation to the person who submitted (non-fatal — never blocks submission).
+    await sendFormConfirmation({
+      to: form.submitterEmail || form.email,
+      firstName: form.submitterFirstName || form.firstName,
+      formName: "enrollment form",
+    })
 
     return NextResponse.json({ ok: true, message: "Email sent successfully" })
   } catch (e: any) {
