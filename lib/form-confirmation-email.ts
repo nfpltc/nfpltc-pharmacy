@@ -1,4 +1,5 @@
 import { Resend } from "resend"
+import { logEmail } from "./email-log"
 
 // Branded confirmation emailed to the person who submitted a public form.
 // HIPAA-safe: contains no PHI — only "we received your <form>".
@@ -64,6 +65,12 @@ export async function sendFormConfirmation(opts: {
     const resend = new Resend(key)
     const { subject, html, text } = renderFormConfirmation({ firstName: opts.firstName, formName: opts.formName })
     const res: any = await resend.emails.send({ from, to, subject, html, text })
+    await logEmail({
+      to, subject, category: "form",
+      status: res?.error ? "failed" : "sent",
+      resendId: res?.data?.id, error: res?.error?.message,
+      meta: { form: opts.formName },
+    })
     return !res?.error
   } catch {
     return false

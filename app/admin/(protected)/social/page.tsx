@@ -87,6 +87,9 @@ export default function SocialEditor() {
 
   useEffect(() => { loadChannels(); loadQueue(); loadLibrary(); setDrafts(readDrafts()) }, [])
 
+  // Story/Reel need media — fall back to a normal post when the image is cleared.
+  useEffect(() => { if (!imageUrl && igType !== "post") setIgType("post") }, [imageUrl, igType])
+
   async function loadChannels() {
     try {
       const res = await fetch("/api/admin/buffer/profiles")
@@ -464,7 +467,7 @@ export default function SocialEditor() {
             onQueue={() => enqueue(p.id, inOneMinute())}
             scheduleValue={scheduleAt[p.id]} onSchedule={(v) => setScheduleAt((s) => ({ ...s, [p.id]: v }))}
             onScheduleSubmit={() => { const v = scheduleAt[p.id]; if (!v) { setMsg({ type: "error", text: "Pick a date & time." }); return } enqueue(p.id, new Date(v).toISOString()) }}
-            igType={igType} onIgType={(v) => setIgType(v as "post" | "story" | "reel")}
+            igType={igType} onIgType={(v) => setIgType(v as "post" | "story" | "reel")} hasImage={!!imageUrl}
           />
         ))}
       </div>
@@ -539,7 +542,7 @@ function PlatformCard(props: {
   rewriting: boolean; onRewrite: (instr: string) => void
   busy: boolean; onPostNow: () => void; onQueue: () => void
   scheduleValue: string; onSchedule: (v: string) => void; onScheduleSubmit: () => void
-  igType?: string; onIgType?: (v: string) => void
+  igType?: string; onIgType?: (v: string) => void; hasImage?: boolean
 }) {
   const { p, text, channels, selected, busy } = props
   const Icon = p.icon
@@ -558,12 +561,17 @@ function PlatformCard(props: {
       {p.id === "instagram" && (
         <div className="mb-2 flex items-center gap-1.5">
           <span className="text-[11px] text-gray-400">Post as</span>
-          {["post", "story", "reel"].map((t) => (
-            <button key={t} type="button" onClick={() => props.onIgType?.(t)}
-              className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium capitalize ${props.igType === t ? "bg-emerald-700 text-white" : "border border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
-              {t}
-            </button>
-          ))}
+          {["post", "story", "reel"].map((t) => {
+            const disabled = t !== "post" && !props.hasImage
+            return (
+              <button key={t} type="button" disabled={disabled}
+                onClick={() => props.onIgType?.(t)}
+                title={disabled ? "Add an image or video first" : undefined}
+                className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium capitalize ${props.igType === t ? "bg-emerald-700 text-white" : "border border-gray-200 text-gray-500 hover:bg-gray-50"} ${disabled ? "cursor-not-allowed opacity-40" : ""}`}>
+                {t}
+              </button>
+            )
+          })}
         </div>
       )}
 
