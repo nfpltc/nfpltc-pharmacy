@@ -46,13 +46,42 @@ export default function FinancePage() {
   }
   useEffect(() => { load() }, [])
 
-  const cur = useMemo(() => months.find((m) => m.month_ym === sel) || months[0], [months, sel])
+  // `sel` is a month_ym, or an aggregate scope: __ytd / __6mo / __all.
+  const isAgg = ["__ytd", "__6mo", "__all"].includes(sel)
+  const rangeMonths = useMemo(() => {
+    if (!months.length) return []
+    if (sel === "__all") return months
+    if (sel === "__6mo") return months.slice(0, 6)
+    if (sel === "__ytd") { const yr = months[0].month_ym.slice(0, 4); return months.filter((m) => m.month_ym.slice(0, 4) === yr) }
+    return []
+  }, [months, sel])
+
+  // For an aggregate scope, revenue/collected/expenses are SUMMED across the
+  // range, while outstanding/overdue are point-in-time — the latest month in
+  // range (you can't add running balances across months).
+  const cur = useMemo(() => {
+    if (isAgg && rangeMonths.length) {
+      const latest = rangeMonths[0]
+      const sum = (k: keyof Month) => rangeMonths.reduce((s, m) => s + (Number(m[k]) || 0), 0)
+      return {
+        month_ym: sel, revenue: sum("revenue"), collected: sum("collected"), expenses: sum("expenses"),
+        outstanding: latest.outstanding, over_30: latest.over_30, over_60: latest.over_60,
+        over_90: latest.over_90, over_120: latest.over_120, overdue_count: latest.overdue_count, customers: latest.customers,
+      } as Month
+    }
+    return months.find((m) => m.month_ym === sel) || months[0]
+  }, [months, sel, rangeMonths, isAgg])
+
   const overdueTotal = cur ? cur.over_30 + cur.over_60 + cur.over_90 + cur.over_120 : 0
   const collRate = cur && cur.revenue ? Math.round((cur.collected / cur.revenue) * 100) : 0
   const net = cur ? cur.revenue - (cur.expenses || 0) : 0
   const maxRev = Math.max(1, ...months.map((m) => Math.max(m.revenue, m.collected)))
   const maxAge = cur ? Math.max(1, cur.over_30, cur.over_60, cur.over_90, cur.over_120) : 1
   const maxFac = Math.max(1, ...facilities.map((f) => f.overdue))
+  const drillMonth = isAgg ? (rangeMonths[0]?.month_ym || "") : sel
+  const scopeLabel = isAgg
+    ? (rangeMonths.length ? `${shortLabel(rangeMonths[rangeMonths.length - 1].month_ym)} – ${shortLabel(rangeMonths[0].month_ym)}` : "")
+    : label(sel)
 
   if (loading) return <div className="flex justify-center py-24"><Loader2 className="h-7 w-7 animate-spin text-gray-400" /></div>
 
@@ -71,14 +100,18 @@ export default function FinancePage() {
           <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-700/10 text-emerald-700"><Wallet className="h-5 w-5" /></span>
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Money</h1>
-            <p className="text-sm text-gray-500">Revenue, collections, and overdue — from your monthly statements.</p>
+            <p className="text-sm text-gray-500">{isAgg ? `Totals across ${scopeLabel} — sales & collections summed; owed/overdue as of the latest month.` : "Revenue, collections, and overdue — from your monthly statements."}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/admin/finance/overdue" className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700 hover:bg-red-100">
+          <Link href={`/admin/finance/overdue${drillMonth ? `?month=${drillMonth}` : ""}`} className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700 hover:bg-red-100">
             <AlertTriangle className="h-4 w-4" /> Overdue customers
           </Link>
           <select value={sel} onChange={(e) => setSel(e.target.value)} className="h-11 rounded-lg border border-gray-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500">
+            <option value="__ytd">Year to date</option>
+            <option value="__6mo">Last 6 months</option>
+            <option value="__all">All time</option>
+            <option disabled>──────────</option>
             {months.map((m) => <option key={m.month_ym} value={m.month_ym}>{label(m.month_ym)}</option>)}
           </select>
         </div>
@@ -86,9 +119,9 @@ export default function FinancePage() {
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <Kpi label="Revenue" value={usd(cur?.revenue || 0)} sub="this month's sales" />
+        <Kpi label="Revenue" value={usd(cur?.revenue || 0)} sub={isAgg ? `sales · ${scopeLabel}` : "this month's sales"} />
         <Kpi label="Collected" value={usd(cur?.collected || 0)} sub={`${collRate}% of revenue`} subClass="text-emerald-600" />
-        <Kpi label="Outstanding" value={usd(cur?.outstanding || 0)} sub="total owed" />
+        <Kpi label="Outstanding" value={usd(cur?.outstanding || 0)} sub={isAgg ? `as of ${shortLabel(drillMonth)}` : "total owed"} />
         <Kpi label="Overdue" value={usd(overdueTotal)} sub={`${cur?.overdue_count || 0} customers`} valueClass="text-red-600" subClass="text-red-500" />
         <Kpi label={cur && cur.expenses ? "Net (after expenses)" : "Over 120 days"} value={cur && cur.expenses ? usd(net) : usd(cur?.over_120 || 0)} sub={cur && cur.expenses ? "revenue − expenses" : "most serious"} valueClass={cur && cur.expenses ? (net >= 0 ? "text-emerald-600" : "text-red-600") : ""} />
       </div>
@@ -113,14 +146,14 @@ export default function FinancePage() {
         {/* Aging */}
         <Card title="Overdue by age" subtitle="Click a band to see those customers.">
           {[["Over 30 days", cur?.over_30 || 0, "bg-amber-400", "30"], ["Over 60 days", cur?.over_60 || 0, "bg-orange-500", "60"], ["Over 90 days", cur?.over_90 || 0, "bg-red-500", "90"], ["Over 120 days", cur?.over_120 || 0, "bg-red-800", "120"]].map(([nm, val, color, bk]: any) => (
-            <Bar key={nm} name={nm} pct={(val / maxAge) * 100} color={color} amt={usd(val)} href={`/admin/finance/overdue?month=${sel}&bucket=${bk}`} />
+            <Bar key={nm} name={nm} pct={(val / maxAge) * 100} color={color} amt={usd(val)} href={`/admin/finance/overdue?month=${drillMonth}&bucket=${bk}`} />
           ))}
         </Card>
 
         {/* Facility */}
         <Card title="Overdue by facility" subtitle="Click a facility to see its customers.">
           {facilities.length === 0 ? <p className="py-6 text-center text-sm text-gray-400">No overdue balances this month 🎉</p> :
-            facilities.slice(0, 8).map((f) => <Bar key={f.facility} name={f.facility} pct={(f.overdue / maxFac) * 100} color="bg-[#0B7C79]" amt={usd(f.overdue)} icon={<Building2 className="h-3 w-3" />} href={`/admin/finance/overdue?month=${sel}&facility=${encodeURIComponent(f.facility)}`} />)}
+            facilities.slice(0, 8).map((f) => <Bar key={f.facility} name={f.facility} pct={(f.overdue / maxFac) * 100} color="bg-[#0B7C79]" amt={usd(f.overdue)} icon={<Building2 className="h-3 w-3" />} href={`/admin/finance/overdue?month=${drillMonth}&facility=${encodeURIComponent(f.facility)}`} />)}
         </Card>
       </div>
 
@@ -133,7 +166,9 @@ export default function FinancePage() {
         <Legend items={[["bg-emerald-600", "Collected"], ["bg-amber-400", "Outstanding"]]} />
       </Card>
 
-      <ExpensesCard month={sel} onChange={load} expenses={expenses.filter((e) => e.month_ym === sel)} revenue={cur?.revenue || 0} />
+      {isAgg
+        ? <p className="mt-2 text-center text-xs text-gray-400">Pick a specific month to add or review expenses.</p>
+        : <ExpensesCard month={sel} onChange={load} expenses={expenses.filter((e) => e.month_ym === sel)} revenue={cur?.revenue || 0} />}
     </div>
   )
 }
