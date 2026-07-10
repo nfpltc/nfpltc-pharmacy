@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import {
   Linkedin, Twitter, Instagram, Sparkles, Wand2, Image as ImageIcon, Send,
   Clock, CalendarClock, Loader2, Trash2, RefreshCw, Save, Share2, AlertCircle,
-  CheckCircle2, Play, FolderOpen, Upload,
+  CheckCircle2, Play, FolderOpen, Upload, ZoomIn, X,
 } from "lucide-react"
 
 type Platform = "linkedin" | "x" | "instagram"
@@ -68,6 +68,8 @@ export default function SocialEditor() {
   const [library, setLibrary] = useState<{ id: string; url: string; filename?: string; source?: string }[]>([])
   const [showLibrary, setShowLibrary] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
+  const [captioning, setCaptioning] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [channels, setChannels] = useState<Channel[]>([])
@@ -193,6 +195,23 @@ export default function SocialEditor() {
 
   async function deleteLibraryImage(id: string) {
     try { await fetch(`/api/admin/social/library?id=${id}`, { method: "DELETE" }); loadLibrary() } catch { /* ignore */ }
+  }
+
+  // Write per-platform posts FROM the current image (vision AI).
+  async function captionFromImage() {
+    if (!imageUrl) return
+    setCaptioning(true); setMsg(null)
+    try {
+      const res = await fetch("/api/admin/social/caption-from-image", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl, tone }),
+      })
+      const d = await res.json()
+      if (!res.ok) { setMsg({ type: "error", text: d.error || "Could not read the image." }); return }
+      setTexts({ linkedin: d.linkedin, x: d.x, instagram: d.instagram })
+      setMsg({ type: "success", text: "Wrote 3 posts from your image — review and post." })
+    } catch { setMsg({ type: "error", text: "Could not generate from image." }) }
+    finally { setCaptioning(false) }
   }
 
   async function rewrite(platform: Platform, instr: string) {
@@ -338,8 +357,12 @@ export default function SocialEditor() {
         <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50/60 p-3">
           <div className="flex flex-wrap items-start gap-3">
             {imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={imageUrl} alt="" className="h-20 w-20 rounded-lg object-cover" />
+              <button type="button" onClick={() => setLightboxUrl(imageUrl)} title="View full image"
+                className="group relative h-20 w-20 shrink-0 overflow-hidden rounded-lg">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={imageUrl} alt="" className="h-20 w-20 object-cover" />
+                <span className="absolute inset-0 hidden items-center justify-center bg-black/40 text-white group-hover:flex"><ZoomIn className="h-5 w-5" /></span>
+              </button>
             ) : (
               <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-dashed border-gray-300 text-gray-400"><ImageIcon className="h-5 w-5" /></div>
             )}
@@ -373,6 +396,12 @@ export default function SocialEditor() {
                   <FolderOpen className="h-3.5 w-3.5" /> Saved ({library.length})
                 </button>
                 {imageUrl && (
+                  <button onClick={captionFromImage} disabled={captioning} title="Write posts based on this image"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-60">
+                    {captioning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Post from image
+                  </button>
+                )}
+                {imageUrl && (
                   <button onClick={saveCurrentToLibrary} disabled={uploading} title="Save this image to your library"
                     className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60">
                     <Save className="h-3.5 w-3.5" /> Save
@@ -395,6 +424,10 @@ export default function SocialEditor() {
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={img.url} alt={img.filename || ""} onClick={() => { setImageUrl(img.url); setImageCredit(null) }}
                         className={`h-16 w-16 cursor-pointer rounded-lg object-cover ring-2 ${imageUrl === img.url ? "ring-emerald-500" : "ring-transparent hover:ring-gray-300"}`} />
+                      <button onClick={() => setLightboxUrl(img.url)} title="View full image"
+                        className="absolute -left-1.5 -top-1.5 hidden rounded-full bg-white p-0.5 text-gray-600 shadow ring-1 ring-gray-200 group-hover:block">
+                        <ZoomIn className="h-3 w-3" />
+                      </button>
                       <button onClick={() => deleteLibraryImage(img.id)} title="Delete from library"
                         className="absolute -right-1.5 -top-1.5 hidden rounded-full bg-white p-0.5 text-red-500 shadow ring-1 ring-gray-200 group-hover:block">
                         <Trash2 className="h-3 w-3" />
@@ -407,6 +440,15 @@ export default function SocialEditor() {
           )}
         </div>
       </div>
+
+      {/* Full-image lightbox */}
+      {lightboxUrl && (
+        <div onClick={() => setLightboxUrl(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6">
+          <button onClick={() => setLightboxUrl(null)} title="Close" className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"><X className="h-5 w-5" /></button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightboxUrl} alt="" onClick={(e) => e.stopPropagation()} className="max-h-[90vh] max-w-full rounded-lg object-contain shadow-2xl" />
+        </div>
+      )}
 
       {/* Platform cards */}
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
