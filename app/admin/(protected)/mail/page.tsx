@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Mail, Send, Loader2, Search, RefreshCw, PenSquare, Inbox, CheckCircle2, AlertCircle } from "lucide-react"
+import { Mail, Send, Loader2, Search, RefreshCw, PenSquare, Inbox, CheckCircle2, AlertCircle, X } from "lucide-react"
 
 type Item = { id: string; to: string | null; subject: string; category: string; status: string; date: string | null; error?: string | null; sent_by?: string | null }
 
@@ -30,6 +30,20 @@ export default function MailPage() {
   const [message, setMessage] = useState("")
   const [sending, setSending] = useState(false)
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null)
+
+  // Body viewer
+  const [viewing, setViewing] = useState<Item | null>(null)
+  const [body, setBody] = useState<{ available: boolean; subject?: string; html?: string | null; text?: string | null; to?: string | null; error?: string } | null>(null)
+  const [bodyLoading, setBodyLoading] = useState(false)
+
+  const openBody = async (item: Item) => {
+    setViewing(item); setBody(null); setBodyLoading(true)
+    try {
+      const r = await fetch(`/api/admin/mail/body?id=${encodeURIComponent(item.id)}`)
+      setBody(await r.json())
+    } catch { setBody({ available: false, error: "Could not load the email." }) }
+    finally { setBodyLoading(false) }
+  }
 
   const load = async () => {
     setLoading(true)
@@ -112,7 +126,7 @@ export default function MailPage() {
                   const c = CAT[i.category] || CAT.other
                   const ok = ["sent", "delivered"].includes((i.status || "").toLowerCase())
                   return (
-                    <tr key={i.id} className="hover:bg-gray-50">
+                    <tr key={i.id} onClick={() => openBody(i)} className="cursor-pointer hover:bg-gray-50" title="View email">
                       <td className="whitespace-nowrap px-4 py-2.5 text-gray-500">{fmt(i.date)}</td>
                       <td className="px-4 py-2.5 text-gray-700">{i.to || "—"}</td>
                       <td className="px-4 py-2.5 text-gray-900">{i.subject}{i.error && <span className="ml-2 text-xs text-red-500" title={i.error}>· error</span>}</td>
@@ -151,6 +165,28 @@ export default function MailPage() {
                 className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50">
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send email
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Email body viewer */}
+      {viewing && (
+        <div onClick={() => setViewing(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div onClick={(e) => e.stopPropagation()} className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
+              <div className="min-w-0">
+                <h3 className="truncate text-sm font-semibold text-gray-900">{body?.subject || viewing.subject}</h3>
+                <p className="mt-0.5 truncate text-xs text-gray-500">To {viewing.to || body?.to || "—"} · {fmt(viewing.date)}</p>
+              </div>
+              <button onClick={() => setViewing(null)} title="Close" className="shrink-0 rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto bg-gray-50 p-4">
+              {bodyLoading ? <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div> :
+                !body ? null :
+                !body.available ? <p className="py-12 text-center text-sm text-gray-400">{body.error || "Body not available."}</p> :
+                body.html ? <iframe title="email" sandbox="" srcDoc={body.html} className="h-[62vh] w-full rounded-lg border border-gray-200 bg-white" /> :
+                <pre className="whitespace-pre-wrap rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-800">{body.text}</pre>}
             </div>
           </div>
         </div>
