@@ -53,18 +53,22 @@ export async function GET() {
   const months = Object.values(byMonth).sort((a: any, b: any) => String(b.month_ym).localeCompare(String(a.month_ym)))
   const latest = (months[0] as any)?.month_ym || null
 
-  // Overdue by facility for the latest month.
-  const facMap: Record<string, number> = {}
+  // Overdue by facility, per month (so the dashboard can show the selected month).
+  const facByMonth: Record<string, Record<string, number>> = {}
   for (const r of rows) {
-    if (r.billing_period !== latest) continue
     const od = n(r.over_30) + n(r.over_60) + n(r.over_90) + n(r.over_120)
     if (od <= 0) continue
+    const m = r.billing_period || "?"
     const key = r.facility || "—"
-    facMap[key] = (facMap[key] || 0) + od
+    ;(facByMonth[m] ||= {})[key] = (facByMonth[m][key] || 0) + od
   }
-  const facilities = Object.entries(facMap)
-    .map(([facility, overdue]) => ({ facility, overdue }))
-    .sort((a, b) => b.overdue - a.overdue)
+  const facilities_by_month: Record<string, { facility: string; overdue: number }[]> = {}
+  for (const [m, map] of Object.entries(facByMonth)) {
+    facilities_by_month[m] = Object.entries(map)
+      .map(([facility, overdue]) => ({ facility, overdue }))
+      .sort((a, b) => b.overdue - a.overdue)
+  }
+  const facilities = facilities_by_month[latest || ""] || []  // latest month (kept for compat)
 
   // Expenses (optional).
   const { data: exp } = await sb.from("pharmacy_expenses").select("id, month_ym, category, label, amount").order("month_ym", { ascending: false })
@@ -72,5 +76,5 @@ export async function GET() {
   for (const e of exp || []) expByMonth[e.month_ym] = (expByMonth[e.month_ym] || 0) + n(e.amount)
   for (const m of months as any[]) m.expenses = expByMonth[m.month_ym] || 0
 
-  return NextResponse.json({ months, facilities, latest_month: latest, expenses: exp || [] })
+  return NextResponse.json({ months, facilities, facilities_by_month, latest_month: latest, expenses: exp || [] })
 }
