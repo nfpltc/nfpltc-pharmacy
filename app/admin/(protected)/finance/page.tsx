@@ -111,16 +111,16 @@ export default function FinancePage() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Aging */}
-        <Card title="Overdue by age" subtitle="Older money is harder to collect.">
-          {[["Over 30 days", cur?.over_30 || 0, "bg-amber-400"], ["Over 60 days", cur?.over_60 || 0, "bg-orange-500"], ["Over 90 days", cur?.over_90 || 0, "bg-red-500"], ["Over 120 days", cur?.over_120 || 0, "bg-red-800"]].map(([nm, val, color]: any) => (
-            <Bar key={nm} name={nm} pct={(val / maxAge) * 100} color={color} amt={usd(val)} />
+        <Card title="Overdue by age" subtitle="Click a band to see those customers.">
+          {[["Over 30 days", cur?.over_30 || 0, "bg-amber-400", "30"], ["Over 60 days", cur?.over_60 || 0, "bg-orange-500", "60"], ["Over 90 days", cur?.over_90 || 0, "bg-red-500", "90"], ["Over 120 days", cur?.over_120 || 0, "bg-red-800", "120"]].map(([nm, val, color, bk]: any) => (
+            <Bar key={nm} name={nm} pct={(val / maxAge) * 100} color={color} amt={usd(val)} href={`/admin/finance/overdue?month=${sel}&bucket=${bk}`} />
           ))}
         </Card>
 
         {/* Facility */}
-        <Card title="Overdue by facility" subtitle="Chase the facility, not each resident.">
+        <Card title="Overdue by facility" subtitle="Click a facility to see its customers.">
           {facilities.length === 0 ? <p className="py-6 text-center text-sm text-gray-400">No overdue balances this month 🎉</p> :
-            facilities.slice(0, 8).map((f) => <Bar key={f.facility} name={f.facility} pct={(f.overdue / maxFac) * 100} color="bg-[#0B7C79]" amt={usd(f.overdue)} icon={<Building2 className="h-3 w-3" />} />)}
+            facilities.slice(0, 8).map((f) => <Bar key={f.facility} name={f.facility} pct={(f.overdue / maxFac) * 100} color="bg-[#0B7C79]" amt={usd(f.overdue)} icon={<Building2 className="h-3 w-3" />} href={`/admin/finance/overdue?month=${sel}&facility=${encodeURIComponent(f.facility)}`} />)}
         </Card>
       </div>
 
@@ -156,14 +156,16 @@ function Card({ title, subtitle, children }: any) {
     </div>
   )
 }
-function Bar({ name, pct, color, amt, icon }: any) {
-  return (
-    <div className="mb-2 grid grid-cols-[110px_1fr_90px] items-center gap-3">
+function Bar({ name, pct, color, amt, icon, href }: any) {
+  const inner = (
+    <div className="grid grid-cols-[110px_1fr_90px] items-center gap-3">
       <span className="flex items-center gap-1 text-xs text-gray-600">{icon}{name}</span>
       <div className="h-3.5 rounded-full bg-gray-100"><div className={`h-full rounded-full ${color}`} style={{ width: `${Math.max(pct, 2)}%` }} /></div>
       <span className="text-right text-xs tabular-nums text-gray-800">{amt}</span>
     </div>
   )
+  if (href) return <Link href={href} className="-mx-1 mb-2 block rounded-md px-1 py-0.5 hover:bg-gray-50" title="View these customers">{inner}</Link>
+  return <div className="mb-2">{inner}</div>
 }
 function Legend({ items }: { items: [string, string][] }) {
   return (

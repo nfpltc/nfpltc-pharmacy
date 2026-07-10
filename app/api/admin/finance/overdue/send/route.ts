@@ -28,9 +28,14 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}))
   const month = String(b.month || "")
   const account = typeof b.account_number === "string" && b.account_number.trim() ? b.account_number.trim() : null
-  // Single-customer sends ignore the bucket (send if they have any past-due).
-  // The dedupe key is bucket-independent (below), so no double-dunning.
-  const bucket = account ? "all" : (["30", "60", "90", "120"].includes(b.bucket) ? b.bucket : "all")
+  // Optional explicit account list (from the filtered overdue table) — send to
+  // exactly these accounts. Takes the same "already decided" path as single-send.
+  // An explicitly EMPTY array means "nobody" (never fall through to the bucket).
+  const accounts: string[] | null = !account && Array.isArray(b.accounts)
+    ? Array.from(new Set(b.accounts.map((a: any) => String(a)).filter(Boolean))) : null
+  // Single-customer / explicit-list sends ignore the bucket (the caller already
+  // decided who); the dedupe key is bucket-independent, so no double-dunning.
+  const bucket = (account || accounts) ? "all" : (["30", "60", "90", "120"].includes(b.bucket) ? b.bucket : "all")
   if (!/^\d{4}-\d{2}$/.test(month)) return NextResponse.json({ error: "Pick a month" }, { status: 400 })
 
   const RESEND_API_KEY = process.env.RESEND_API_KEY
@@ -74,9 +79,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const accountSet = accounts ? new Set(accounts) : null
   const bucketKey = ({ "30": "over_30", "60": "over_60", "90": "over_90", "120": "over_120" } as any)[bucket]
   const recipients = rows
     .filter((r) => (bucketKey ? num(r[bucketKey]) > 0 : true))
+    .filter((r) => !accountSet || accountSet.has(r.account_number))
     .map((r) => ({ ...r, ...(emails[r.account_number] || { email: null, opted_out: false }) }))
     .filter((r) => r.email && !r.opted_out)
     // one email per account (a customer may have >1 statement row)
