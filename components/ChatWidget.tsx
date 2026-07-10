@@ -388,7 +388,7 @@ export default function ChatWidget({ landing = false }: { landing?: boolean }) {
               disabled={loading}
               className="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
             />
-            <button onClick={sendMessage} disabled={loading || !input.trim()} className="rounded-lg bg-[#0B7C79] p-2 text-white disabled:opacity-40">
+            <button onClick={() => sendMessage()} disabled={loading || !input.trim()} className="rounded-lg bg-[#0B7C79] p-2 text-white disabled:opacity-40">
               <Send className="h-4 w-4" />
             </button>
           </div>
