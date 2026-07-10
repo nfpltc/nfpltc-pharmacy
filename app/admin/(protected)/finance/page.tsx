@@ -28,7 +28,7 @@ const shortLabel = (ym: string) => {
 
 export default function FinancePage() {
   const [months, setMonths] = useState<Month[]>([])
-  const [facilities, setFacilities] = useState<Facility[]>([])
+  const [facilitiesByMonth, setFacilitiesByMonth] = useState<Record<string, Facility[]>>({})
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [sel, setSel] = useState<string>("")
   const [loading, setLoading] = useState(true)
@@ -39,7 +39,7 @@ export default function FinancePage() {
       const r = await fetch("/api/admin/finance/summary")
       const d = await r.json()
       setMonths(d.months || [])
-      setFacilities(d.facilities || [])
+      setFacilitiesByMonth(d.facilities_by_month || {})
       setExpenses(d.expenses || [])
       if (!sel && d.months?.length) setSel(d.months[0].month_ym)
     } catch { /* ignore */ } finally { setLoading(false) }
@@ -77,11 +77,13 @@ export default function FinancePage() {
   const net = cur ? cur.revenue - (cur.expenses || 0) : 0
   const maxRev = Math.max(1, ...months.map((m) => Math.max(m.revenue, m.collected)))
   const maxAge = cur ? Math.max(1, cur.over_30, cur.over_60, cur.over_90, cur.over_120) : 1
-  const maxFac = Math.max(1, ...facilities.map((f) => f.overdue))
   const drillMonth = isAgg ? (rangeMonths[0]?.month_ym || "") : sel
   const scopeLabel = isAgg
     ? (rangeMonths.length ? `${shortLabel(rangeMonths[rangeMonths.length - 1].month_ym)} – ${shortLabel(rangeMonths[0].month_ym)}` : "")
     : label(sel)
+  // Overdue-by-facility for the selected month (or latest month in an aggregate range).
+  const facilities = facilitiesByMonth[drillMonth] || []
+  const maxFac = Math.max(1, ...facilities.map((f) => f.overdue))
 
   if (loading) return <div className="flex justify-center py-24"><Loader2 className="h-7 w-7 animate-spin text-gray-400" /></div>
 
