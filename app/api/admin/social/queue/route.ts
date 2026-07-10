@@ -36,12 +36,17 @@ export async function POST(req: NextRequest) {
           channel_name: it.channel_name || null,
           image_url: it.image_url || null,
           due_at: it.due_at,
+          instagram_type: it.instagram_type || null,
           status: "pending",
         }))
       if (!items.length) return NextResponse.json({ error: "No valid items to queue." }, { status: 400 })
-      const { data, error } = await sb.from("social_queue").insert(items).select()
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-      return NextResponse.json({ ok: true, items: data })
+      let ins = await sb.from("social_queue").insert(items).select()
+      if (ins.error && /instagram_type/i.test(ins.error.message)) {
+        // Column not migrated yet — retry without it (send-time defaults Instagram to "post").
+        ins = await sb.from("social_queue").insert(items.map(({ instagram_type, ...r }: any) => r)).select()
+      }
+      if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 })
+      return NextResponse.json({ ok: true, items: ins.data })
     }
 
     if (action === "delete") {

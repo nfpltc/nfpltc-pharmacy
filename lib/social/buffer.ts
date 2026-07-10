@@ -115,6 +115,7 @@ export async function createPost(opts: {
   imageUrl?: string
   dueAt?: string
   schedulingType?: "automatic" | "notification"
+  instagramType?: "post" | "story" | "reel"
   dryRun?: boolean
   token?: string
 }): Promise<{ ok: boolean; id?: string; error?: string; input?: any }> {
@@ -133,6 +134,12 @@ export async function createPost(opts: {
     assets: opts.imageUrl ? [{ image: { url: opts.imageUrl } }] : [],
   }
   if (opts.mode === "customScheduled" && opts.dueAt) input.dueAt = opts.dueAt
+
+  // Instagram requires a post type (post/story/reel) + shouldShareToFeed.
+  // Stories don't go to the feed. Only sent for Instagram channels.
+  if (opts.instagramType) {
+    input.metadata = { instagram: { type: opts.instagramType, shouldShareToFeed: opts.instagramType !== "story" } }
+  }
 
   // Dry run: return the exact input we would send, without calling Buffer.
   if (opts.dryRun) return { ok: true, input }

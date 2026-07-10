@@ -10,6 +10,7 @@ export interface QueueRow {
   channel_id: string
   channel_name?: string | null
   image_url?: string | null
+  instagram_type?: string | null
   due_at: string
   status: string
 }
@@ -22,6 +23,9 @@ export async function fireQueueItem(row: QueueRow): Promise<{ ok: boolean; error
     text: row.text,
     imageUrl: row.image_url || undefined,
     mode: "shareNow",
+    instagramType: row.platform === "instagram"
+      ? ((["post", "story", "reel"].includes(String(row.instagram_type)) ? row.instagram_type : "post") as "post" | "story" | "reel")
+      : undefined,
   })
   if (r.ok) {
     await sb.from("social_queue").update({ status: "sent", sent_at: new Date().toISOString(), error: null }).eq("id", row.id)

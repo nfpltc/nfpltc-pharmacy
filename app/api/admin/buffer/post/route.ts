@@ -33,7 +33,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "channelId and text are required" }, { status: 400 })
   }
   const mode = (["shareNow", "addToQueue", "shareNext", "customScheduled"].includes(b.mode) ? b.mode : "shareNow") as BufferMode
-  const r = await createPost({ channelId, text, imageUrl: b.imageUrl || undefined, mode, dueAt: b.dueAt })
+  const instagramType = ["post", "story", "reel"].includes(b.instagramType) ? b.instagramType : undefined
+  const r = await createPost({ channelId, text, imageUrl: b.imageUrl || undefined, mode, dueAt: b.dueAt, instagramType })
   if (!r.ok) {
     // Echo the shape we sent (never the text/token) so a Buffer rejection can be
     // told apart from a genuinely empty input on our side.
