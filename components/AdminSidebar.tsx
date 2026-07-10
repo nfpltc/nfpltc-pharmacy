@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation"
 import {
   LayoutDashboard, Bot, MessageCircle, UserCheck, CreditCard, Syringe,
   MessageSquare, Briefcase, Users, BookOpen, UsersRound, FileStack,
-  Pill, Package, ShieldCheck, ExternalLink, Share2, Settings, Wallet
+  Pill, Package, ShieldCheck, ExternalLink, Share2, Settings, Wallet, Mail
 } from "lucide-react"
 
 const NAV = [
@@ -21,6 +21,7 @@ const NAV = [
   { href: "/admin/customers",        label: "Customers",        icon: UsersRound,      key: "crm" },
   { href: "/admin/statements",       label: "Statements",       icon: FileStack,       key: "statements" },
   { href: "/admin/finance",          label: "Money",            icon: Wallet,          key: "finance" },
+  { href: "/admin/mail",             label: "Email",            icon: Mail,            key: "mail" },
   { href: "/admin/medication-tasks", label: "Medication Tasks", icon: Pill,            key: "medication-tasks" },
   { href: "/admin/inventory",        label: "Inventory",        icon: Package,         key: "inventory" },
   { href: "/admin/settings",         label: "Settings",         icon: Settings,        key: "settings" },
