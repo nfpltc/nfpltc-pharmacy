@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
-import { processDue } from "@/lib/social/queue-runner"
 import { processEmailOutbox } from "@/lib/email-outbox-runner"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
-// GET /api/cron/social-queue — fires all pending items whose due_at has passed.
+// GET /api/cron/email-outbox — sends scheduled emails whose time has passed.
 // Auth: CRON_SECRET via `Authorization: Bearer <secret>` or `?secret=<secret>`.
-// A Vercel cron hits this once daily (Hobby plan allows only daily crons — see
-// vercel.json). For minute-level scheduling, point an external cron (e.g.
-// cron-job.org) at this URL with ?secret=CRON_SECRET every 5 minutes.
+// Point an external cron (e.g. cron-job.org) here every 5-15 min, or rely on the
+// social-queue cron which also runs this.
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET
   if (secret) {
@@ -20,7 +18,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
   }
-  const res = await processDue()
-  const mail = await processEmailOutbox()  // scheduled emails ride the same cron
-  return NextResponse.json({ ok: true, ...res, mail, at: new Date().toISOString() })
+  const res = await processEmailOutbox()
+  return NextResponse.json({ ok: true, ...res, at: new Date().toISOString() })
 }
