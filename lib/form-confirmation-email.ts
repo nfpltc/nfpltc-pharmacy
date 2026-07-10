@@ -69,7 +69,7 @@ export async function sendFormConfirmation(opts: {
       to, subject, category: "form",
       status: res?.error ? "failed" : "sent",
       resendId: res?.data?.id, error: res?.error?.message,
-      meta: { form: opts.formName },
+      meta: { form: opts.formName, html },
     })
     return !res?.error
   } catch {

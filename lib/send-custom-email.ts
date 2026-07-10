@@ -30,7 +30,7 @@ export async function sendCustomEmail(opts: {
       await logEmail({ to: opts.to, subject: opts.subject, category: "custom", status: "failed", error: res.error.message, sentBy: opts.sentBy })
       return { ok: false, error: res.error.message || "Send failed" }
     }
-    await logEmail({ to: opts.to, subject: opts.subject, category: "custom", status: "sent", resendId: res?.data?.id, sentBy: opts.sentBy })
+    await logEmail({ to: opts.to, subject: opts.subject, category: "custom", status: "sent", resendId: res?.data?.id, sentBy: opts.sentBy, meta: { html } })
     return { ok: true, id: res?.data?.id || null }
   } catch (e: any) {
     await logEmail({ to: opts.to, subject: opts.subject, category: "custom", status: "failed", error: e?.message, sentBy: opts.sentBy })
