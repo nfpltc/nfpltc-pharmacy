@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
   const PAGE = 1000
   for (let from = 0; from < 100_000; from += PAGE) {
     const { data, error } = await sb.from("customer_statements")
-      .select("id, first_name, last_name, account_number, facility, over_30, over_60, over_90, over_120")
+      .select("id, first_name, last_name, account_number, facility, over_30, over_60, over_90, over_120, balance")
       .eq("billing_period", month)
       .or("over_30.gt.0,over_60.gt.0,over_90.gt.0,over_120.gt.0")
       .range(from, from + PAGE - 1)
@@ -62,7 +62,7 @@ export async function GET(req: NextRequest) {
     return {
       id: r.id, first_name: r.first_name, last_name: r.last_name, account_number: r.account_number,
       facility: r.facility, over_30: num(r.over_30), over_60: num(r.over_60), over_90: num(r.over_90), over_120: num(r.over_120),
-      total_overdue: total, email: e.email, opted_out: e.opted_out,
+      total_overdue: total, balance: r.balance != null ? Number(r.balance) : null, email: e.email, opted_out: e.opted_out,
     }
   })
   if (bucketKey) list = list.filter((r: any) => r[bucketKey] > 0)

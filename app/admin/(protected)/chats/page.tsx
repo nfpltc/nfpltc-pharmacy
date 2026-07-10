@@ -5,6 +5,7 @@ import Link from "next/link"
 import {
   ArrowLeft,
   MessageCircle,
+  TrendingUp,
   User,
   Bot,
   Loader2,
@@ -310,6 +311,12 @@ export default function AdminChatsPage() {
           {stats.total_conversations} total · {stats.today} today
         </p>
         <div className="flex items-center gap-2">
+          <Link
+            href="/admin/chats/analytics"
+            className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+          >
+            <TrendingUp className="h-3 w-3" /> Insights
+          </Link>
           <button
             onClick={() => toggleSetting("visible")}
             disabled={toggling}
