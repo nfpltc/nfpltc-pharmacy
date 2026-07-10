@@ -173,9 +173,13 @@ export default function ContactPage() {
               </div>
 
               {sent && (
-                <p className="md:col-span-2 text-center text-sm text-emerald-700 font-medium mt-2" role="status" aria-live="polite">
-                  ✅ Message sent successfully!
-                </p>
+                <div className="md:col-span-2 mt-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center" role="status" aria-live="polite">
+                  <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
+                    <svg viewBox="0 0 24 24" className="h-8 w-8 text-emerald-600" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+                  </div>
+                  <h3 className="text-xl font-bold text-emerald-900">Message sent!</h3>
+                  <p className="mt-1 text-sm text-emerald-800">Thank you — we&apos;ve received your message and will get back to you soon.</p>
+                </div>
               )}
             </form>
           </div>

@@ -5,6 +5,7 @@ import { useForm, SubmitHandler, useWatch } from "react-hook-form"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { HippaDisclaimerModal } from "@/components/HippaDisclaimerModal"
+import FormSuccess from "@/components/FormSuccess"
 
 // ---------- Utilities ----------
 const US_STATES = [
@@ -233,6 +234,17 @@ export default function EnrollmentFormPage() {
 
   if (!disclaimerAccepted) {
     return <HippaDisclaimerModal onAccept={() => setDisclaimerAccepted(true)} />
+  }
+
+  if (status === "success") {
+    return (
+      <FormSuccess
+        title="Enrollment submitted!"
+        message={serverMsg || "Thank you — we've received your enrollment. Our team will review it and be in touch shortly."}
+        onReset={() => { setStatus("idle"); setServerMsg(null) }}
+        resetLabel="Submit another enrollment"
+      />
+    )
   }
 
   return (

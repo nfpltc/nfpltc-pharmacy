@@ -5,6 +5,7 @@ import { useForm, useFieldArray } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { HippaDisclaimerModal } from "@/components/HippaDisclaimerModal"
+import FormSuccess from "@/components/FormSuccess"
 
 // ---------- Schemas
 const vaccineRowSchema = z.object({
@@ -311,6 +312,17 @@ export default function VaccineConsentPage() {
 
   if (!disclaimerAccepted) {
     return <HippaDisclaimerModal onAccept={() => setDisclaimerAccepted(true)} />
+  }
+
+  if (status === "success") {
+    return (
+      <FormSuccess
+        title="Consent form submitted!"
+        message={serverMsg || "Thank you — we've received your vaccine consent form. Our team will be in touch shortly."}
+        onReset={() => { setStatus("idle"); setServerMsg(null) }}
+        resetLabel="Submit another form"
+      />
+    )
   }
 
   return (

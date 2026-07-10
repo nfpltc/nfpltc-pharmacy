@@ -5,6 +5,7 @@ import { useForm, SubmitHandler } from "react-hook-form"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { HippaDisclaimerModal } from "@/components/HippaDisclaimerModal"
+import FormSuccess from "@/components/FormSuccess"
 
 // -----------------------------
 // Utilities
@@ -178,6 +179,17 @@ export default function CreditCardUpdateFormPage() {
 
   if (!disclaimerAccepted) {
     return <HippaDisclaimerModal onAccept={() => setDisclaimerAccepted(true)} />
+  }
+
+  if (status === "success") {
+    return (
+      <FormSuccess
+        title="Card details updated!"
+        message={serverMsg || "Thank you — your billing information has been securely submitted."}
+        onReset={() => { setStatus("idle"); setServerMsg(null) }}
+        resetLabel="Update another card"
+      />
+    )
   }
 
   return (
