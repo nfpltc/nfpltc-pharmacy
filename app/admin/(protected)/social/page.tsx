@@ -76,6 +76,7 @@ export default function SocialEditor() {
   const [channelsError, setChannelsError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Record<Platform, string>>({ linkedin: "", x: "", instagram: "" })
   const [scheduleAt, setScheduleAt] = useState<Record<Platform, string>>({ linkedin: "", x: "", instagram: "" })
+  const [igType, setIgType] = useState<"post" | "story" | "reel">("post")
   const [busy, setBusy] = useState<Record<string, boolean>>({})
 
   const [queue, setQueue] = useState<QueueItem[]>([])
@@ -243,7 +244,7 @@ export default function SocialEditor() {
     try {
       const res = await fetch("/api/admin/buffer/post", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channelId: selected[platform], text: texts[platform], imageUrl: imageUrl || undefined, mode: "shareNow" }),
+        body: JSON.stringify({ channelId: selected[platform], text: texts[platform], imageUrl: imageUrl || undefined, mode: "shareNow", instagramType: platform === "instagram" ? igType : undefined }),
       })
       const d = await res.json()
       setMsg(res.ok
@@ -264,6 +265,7 @@ export default function SocialEditor() {
         body: JSON.stringify({ action: "add", items: [{
           text: texts[platform], platform, channel_id: selected[platform],
           channel_name: ch?.name, image_url: imageUrl || null, due_at: dueAt,
+          instagram_type: platform === "instagram" ? igType : null,
         }] }),
       })
       const d = await res.json()
@@ -462,6 +464,7 @@ export default function SocialEditor() {
             onQueue={() => enqueue(p.id, inOneMinute())}
             scheduleValue={scheduleAt[p.id]} onSchedule={(v) => setScheduleAt((s) => ({ ...s, [p.id]: v }))}
             onScheduleSubmit={() => { const v = scheduleAt[p.id]; if (!v) { setMsg({ type: "error", text: "Pick a date & time." }); return } enqueue(p.id, new Date(v).toISOString()) }}
+            igType={igType} onIgType={(v) => setIgType(v as "post" | "story" | "reel")}
           />
         ))}
       </div>
@@ -536,6 +539,7 @@ function PlatformCard(props: {
   rewriting: boolean; onRewrite: (instr: string) => void
   busy: boolean; onPostNow: () => void; onQueue: () => void
   scheduleValue: string; onSchedule: (v: string) => void; onScheduleSubmit: () => void
+  igType?: string; onIgType?: (v: string) => void
 }) {
   const { p, text, channels, selected, busy } = props
   const Icon = p.icon
@@ -550,6 +554,18 @@ function PlatformCard(props: {
       <select value={selected} onChange={(e) => props.onSelect(e.target.value)} className="mb-2 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs">
         {channels.length === 0 ? <option value="">No channel connected</option> : channels.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
       </select>
+
+      {p.id === "instagram" && (
+        <div className="mb-2 flex items-center gap-1.5">
+          <span className="text-[11px] text-gray-400">Post as</span>
+          {["post", "story", "reel"].map((t) => (
+            <button key={t} type="button" onClick={() => props.onIgType?.(t)}
+              className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium capitalize ${props.igType === t ? "bg-emerald-700 text-white" : "border border-gray-200 text-gray-500 hover:bg-gray-50"}`}>
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
 
       <textarea value={text} onChange={(e) => props.onText(e.target.value)} rows={7}
         placeholder={`${p.label} post…`}
