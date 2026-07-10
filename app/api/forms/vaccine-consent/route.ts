@@ -5,6 +5,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 import { readFile } from "fs/promises"
 import path from "path"
 import { createClient } from "@supabase/supabase-js"
+import { sendFormConfirmation } from "@/lib/form-confirmation-email"
 
 // Ensure Node.js runtime so fs/path/pdf-lib work in App Router
 export const runtime = "nodejs"
@@ -133,6 +134,9 @@ export async function POST(req: Request) {
         }
       }
     } catch (dbErr) { console.error("Supabase save error (vaccine):", dbErr) }
+
+    // Confirmation to the submitter (non-fatal).
+    await sendFormConfirmation({ to: form.email, firstName: form.firstName, formName: "vaccine consent form" })
 
     return NextResponse.json({ ok: true, message: "Email sent successfully" })
   } catch (e: any) {

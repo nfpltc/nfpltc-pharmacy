@@ -6,6 +6,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 import { readFile } from "fs/promises"
 import path from "path"
 import { createClient } from "@supabase/supabase-js"
+import { sendFormConfirmation } from "@/lib/form-confirmation-email"
 
 // Ensure Node runtime for fs/path/pdf-lib
 export const runtime = "nodejs"
@@ -379,6 +380,9 @@ export async function POST(req: Request) {
         }
       }
     } catch (dbErr) { console.error("Supabase save error (credit card):", dbErr) }
+
+    // Confirmation to the submitter (non-fatal). No card details are included.
+    await sendFormConfirmation({ to: parsed.email, firstName: parsed.firstName, formName: "billing update" })
 
     // Respond
     return NextResponse.json({ success: true, message: "Form submitted successfully" })
