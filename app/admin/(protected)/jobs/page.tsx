@@ -40,7 +40,7 @@ function candidateMailUrl(c: { first_name: string; job_title: string; email: str
     message = `Hi ${first},\n\nThank you for applying for the ${role} position at North Falmouth Pharmacy. We were impressed by your background, and your application is moving forward in our review.\n\nWe'll be in touch shortly with the next steps. In the meantime, please don't hesitate to reach out with any questions.\n\nWarm regards,\nNorth Falmouth Pharmacy Team`
   } else if (kind === "reject") {
     subject = `Update on your application for ${role}`
-    message = `Hi ${first},\n\nThank you for your interest in the ${role} position and for the time you invested in your application. After careful consideration, we've decided to move forward with other candidates for this role at this time.\n\nWe truly appreciate your interest in North Falmouth Pharmacy and will keep your details on file. We'd warmly welcome you to apply for future openings that fit your experience.\n\nWith appreciation and best wishes,\nNorth Falmouth Pharmacy Team`
+    message = `Hi ${first},\n\nThank you for your interest in the ${role} position and for the time you invested in your application. After careful consideration, we've decided to move forward with other candidates for this role at this time.\n\nWe truly appreciate your interest in North Falmouth Pharmacy and will keep your details on file. We'd warmly welcome you to apply for future openings that fit your experience — you can see our current openings here:\nhttps://www.nfpltc.com/careers\n\nWith appreciation and best wishes,\nNorth Falmouth Pharmacy Team`
   } else {
     subject = `Regarding your application for ${role}`
   }
