@@ -30,6 +30,26 @@ const candStatusColors: Record<string, string> = {
   rejected:    "bg-red-100 text-red-700",
 }
 
+// Link to the in-app Email composer, pre-filled for a candidate.
+function candidateMailUrl(c: { first_name: string; job_title: string; email: string }, kind: "custom" | "liked" | "reject") {
+  const first = (c.first_name || "").trim() || "there"
+  const role = c.job_title || "the role"
+  let subject = "", message = ""
+  if (kind === "liked") {
+    subject = `Your application for ${role} — North Falmouth Pharmacy`
+    message = `Hi ${first},\n\nThank you for applying for the ${role} position at North Falmouth Pharmacy. We were impressed by your background, and your application is moving forward in our review.\n\nWe'll be in touch shortly with the next steps. In the meantime, please don't hesitate to reach out with any questions.\n\nWarm regards,\nNorth Falmouth Pharmacy Team`
+  } else if (kind === "reject") {
+    subject = `Update on your application for ${role}`
+    message = `Hi ${first},\n\nThank you for your interest in the ${role} position and for the time you invested in your application. After careful consideration, we've decided to move forward with other candidates for this role at this time.\n\nWe truly appreciate your interest in North Falmouth Pharmacy and will keep your details on file. We'd warmly welcome you to apply for future openings that fit your experience.\n\nWith appreciation and best wishes,\nNorth Falmouth Pharmacy Team`
+  } else {
+    subject = `Regarding your application for ${role}`
+  }
+  const q = new URLSearchParams({ tab: "new", to: c.email || "" })
+  if (subject) q.set("subject", subject)
+  if (message) q.set("message", message)
+  return `/admin/mail?${q.toString()}`
+}
+
 const emptyForm = {
   title: "", department: "Pharmacy", location: "North Falmouth, MA 02556",
   type: "Full-time", salary_range: "", description: "",
@@ -292,7 +312,7 @@ export default function AdminJobsPage() {
                       <select value={c.status || "new"} onChange={e => updateCandStatus(c.id, e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm">
                         <option value="new">New</option><option value="reviewed">Reviewed</option><option value="interviewed">Interviewed</option><option value="hired">Hired</option><option value="rejected">Rejected</option>
                       </select>
-                      <a href={`mailto:${c.email}?subject=Re: Your Application for ${c.job_title}`} className="rounded-lg p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600">📧</a>
+                      <a href={candidateMailUrl(c, "custom")} title="Email this candidate" className="rounded-lg p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600">📧</a>
                       <button onClick={() => delCand(c.id)} className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600">🗑️</button>
                     </div>
                   </div>
@@ -330,6 +350,17 @@ export default function AdminJobsPage() {
                         <h4 className="text-xs font-semibold uppercase text-gray-500 mb-2">Cover Letter</h4>
                         <p className="text-sm text-gray-700 whitespace-pre-wrap rounded-lg border bg-white p-4">{c.cover_letter}</p>
                       </div>}
+
+                      {/* Quick email replies — open the composer pre-filled */}
+                      <div className="mt-4 pt-4 border-t">
+                        <h4 className="text-xs font-semibold uppercase text-gray-500 mb-2">Send a reply</h4>
+                        <div className="flex flex-wrap gap-2">
+                          <a href={candidateMailUrl(c, "liked")} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100">👍 We liked your profile</a>
+                          <a href={candidateMailUrl(c, "reject")} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50">🙏 Not moving forward</a>
+                          <a href={candidateMailUrl(c, "custom")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#0B7C79] bg-white px-3 py-1.5 text-xs font-medium text-[#0B7C79] hover:bg-emerald-50">✍️ Write with AI</a>
+                        </div>
+                        <p className="mt-1.5 text-[11px] text-gray-400">Opens the Email composer pre-filled with {c.first_name}'s address — edit, polish with AI, then send or schedule.</p>
+                      </div>
                     </div>
                   )}
                 </div>

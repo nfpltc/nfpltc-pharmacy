@@ -67,6 +67,19 @@ export default function MailPage() {
   }
   useEffect(() => { load(); loadOutbox() }, [])
 
+  // Pre-fill the composer from a link (e.g. the Candidates page):
+  // /admin/mail?tab=new&to=&subject=&message=
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search)
+    const pto = sp.get("to"), psub = sp.get("subject"), pmsg = sp.get("message")
+    if (pto || psub || pmsg || sp.get("tab") === "new") {
+      if (pto) setTo(pto)
+      if (psub) setSubject(psub)
+      if (pmsg) setMessage(pmsg)
+      setTab("new")
+    }
+  }, [])
+
   // Debounced CRM search on the "To" field.
   useEffect(() => {
     const q = to.trim()
