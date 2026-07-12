@@ -1,39 +1,11 @@
 "use client"
 import { useState } from "react"
-import { encodeCode128, bitsToRects } from "@/lib/barcode"
 import Link from "next/link"
-import { Search, Plus, Printer, X, Check, Loader2, ArrowRight, Trash2, Barcode } from "lucide-react"
+import { QRCodeSVG } from "qrcode.react"
+import { PrintLabelModal } from "@/components/inventory/PrintLabelModal"
+import { Search, Plus, Printer, X, Check, ArrowRight, Trash2 } from "lucide-react"
 
 type Item = { id: string; name: string; sku: string; barcode: string; category: string; form?: string; strength?: string; quantity_in_stock: number; quantity_in_transit: number; quantity_damaged: number; reorder_threshold: number }
-
-function buildBars(code: string) {
-  try {
-    const bits = encodeCode128(code)
-    return bitsToRects(bits, 48)
-  } catch {
-    // fallback for any encoding error
-    return { rects: [], totalW: 200 }
-  }
-}
-
-function printLabel(item: Item) {
-  const { rects, totalW } = buildBars(item.barcode)
-  const svgBars = rects.map(b => `<rect x="${b.x}" y="2" width="${b.w}" height="48" fill="#111"/>`).join("")
-  const svg = `<svg width="100%" viewBox="0 0 ${totalW} 60" xmlns="http://www.w3.org/2000/svg">${svgBars}</svg>`
-  const win = window.open("", "_blank")
-  if (!win) { alert("Please allow popups to print labels"); return }
-  win.document.write(`<!DOCTYPE html><html><head><title>${item.name}</title>
-  <style>body{margin:0;padding:24px;font-family:Arial,sans-serif;text-align:center}</style></head>
-  <body>
-  <p style="font-size:16px;font-weight:700;margin:0 0 2px">${item.name}</p>
-  ${item.strength ? `<p style="font-size:12px;color:#666;margin:0 0 2px">${item.strength}${item.form ? " · " + item.form : ""}</p>` : ""}
-  <p style="font-size:11px;color:#888;margin:0 0 8px">SKU: ${item.sku}</p>
-  ${svg}
-  <p style="font-size:12px;letter-spacing:4px;margin-top:6px">${item.barcode}</p>
-  <script>window.onload=function(){window.print();setTimeout(function(){window.close()},600)}<\\/script>
-  </body></html>`)
-  win.document.close()
-}
 
 export default function ProductsClient({ items: init }: { items: Item[] }) {
   const [items, setItems] = useState(init)
@@ -44,6 +16,7 @@ export default function ProductsClient({ items: init }: { items: Item[] }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [newItem, setNewItem] = useState<Item | null>(null)
+  const [printItem, setPrintItem] = useState<Item | null>(null)
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }))
 
   const reload = async () => { const r = await fetch("/api/admin/inventory/items"); const d = await r.json(); if (r.ok) setItems(d.items || []) }
@@ -97,7 +70,7 @@ export default function ProductsClient({ items: init }: { items: Item[] }) {
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-amber-700 mb-2">⚠ Low Stock ({low.length})</p>
           <div className="grid gap-3 sm:grid-cols-2">
-            {low.map(item => <ProductCard key={item.id} item={item} onPrint={() => printLabel(item)} onDelete={() => del(item.id, item.name)} />)}
+            {low.map(item => <ProductCard key={item.id} item={item} onPrint={() => setPrintItem(item)} onDelete={() => del(item.id, item.name)} />)}
           </div>
         </div>
       )}
@@ -107,7 +80,7 @@ export default function ProductsClient({ items: init }: { items: Item[] }) {
         <div>
           {low.length > 0 && <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">All Products ({ok.length})</p>}
           <div className="grid gap-3 sm:grid-cols-2">
-            {ok.map(item => <ProductCard key={item.id} item={item} onPrint={() => printLabel(item)} onDelete={() => del(item.id, item.name)} />)}
+            {ok.map(item => <ProductCard key={item.id} item={item} onPrint={() => setPrintItem(item)} onDelete={() => del(item.id, item.name)} />)}
           </div>
         </div>
       )}
@@ -135,7 +108,7 @@ export default function ProductsClient({ items: init }: { items: Item[] }) {
                     <div><label className="text-xs font-medium text-gray-500">Reorder at</label><input type="number" value={form.reorder_threshold} onChange={e => set("reorder_threshold", e.target.value)} className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" /></div>
                   </div>
                   {error && <p className="text-sm text-red-600">{error}</p>}
-                  <p className="text-xs text-gray-400">SKU and barcode are auto-generated.</p>
+                  <p className="text-xs text-gray-400">SKU and barcode are auto-generated. Labels print as a QR code.</p>
                   <div className="flex justify-end gap-2 pt-1">
                     <button onClick={() => setShowAdd(false)} className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600">Cancel</button>
                     <button onClick={createProduct} disabled={saving} className="rounded-lg bg-[#0B7C79] px-4 py-2 text-sm font-medium text-white disabled:opacity-60">{saving ? "Creating..." : "Create"}</button>
@@ -151,12 +124,14 @@ export default function ProductsClient({ items: init }: { items: Item[] }) {
                 <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 text-center">
                   <p className="font-bold text-gray-900">{newItem.name}</p>
                   {newItem.strength && <p className="text-xs text-gray-500 mt-0.5">{newItem.strength}</p>}
-                  <p className="text-xs text-gray-400 mb-4">SKU: {newItem.sku}</p>
-                  {(() => { const { rects, totalW } = buildBars(newItem.barcode); return <svg width="100%" viewBox={`0 0 ${totalW} 52`} xmlns="http://www.w3.org/2000/svg">{rects.map((b,i) => <rect key={i} x={b.x} y={1} width={b.w} height={46} fill="#111" />)}</svg> })()}
-                  <p className="text-xs tracking-widest text-gray-500 mt-1">{newItem.barcode}</p>
+                  <p className="text-xs text-gray-400 mb-3">SKU: {newItem.sku}</p>
+                  <div className="mx-auto" style={{ width: 120, height: 120 }}>
+                    <QRCodeSVG value={newItem.barcode || newItem.sku} size={120} level="M" marginSize={2} style={{ width: "100%", height: "100%" }} />
+                  </div>
+                  <p className="text-xs tracking-widest text-gray-500 mt-2">{newItem.barcode}</p>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-2">
-                  <button onClick={() => printLabel(newItem)} className="h-10 rounded-xl bg-[#0B7C79] text-sm font-medium text-white flex items-center justify-center gap-2 hover:bg-[#0a6b68]"><Printer className="h-4 w-4" /> Print Label</button>
+                  <button onClick={() => { setPrintItem(newItem); setShowAdd(false) }} className="h-10 rounded-xl bg-[#0B7C79] text-sm font-medium text-white flex items-center justify-center gap-2 hover:bg-[#0a6b68]"><Printer className="h-4 w-4" /> Print Label</button>
                   <button onClick={() => { setShowAdd(false); setNewItem(null) }} className="h-10 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50">Done</button>
                 </div>
               </div>
@@ -164,6 +139,8 @@ export default function ProductsClient({ items: init }: { items: Item[] }) {
           </div>
         </div>
       )}
+
+      {printItem && <PrintLabelModal item={printItem} onClose={() => setPrintItem(null)} />}
     </div>
   )
 }

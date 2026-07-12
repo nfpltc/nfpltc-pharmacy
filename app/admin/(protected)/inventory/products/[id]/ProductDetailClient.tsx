@@ -1,40 +1,21 @@
 "use client"
 import { useState } from "react"
-import { encodeCode128, bitsToRects } from "@/lib/barcode"
-import { Printer, Pencil, Check, X, Loader2 } from "lucide-react"
+import { QRCodeSVG } from "qrcode.react"
+import { PrintLabelModal } from "@/components/inventory/PrintLabelModal"
+import { Printer, Pencil, Check, Loader2 } from "lucide-react"
 
 type Item = { id: string; name: string; sku: string; barcode: string; category: string; form?: string; strength?: string; quantity_in_stock: number; quantity_in_transit: number; quantity_damaged: number; reorder_threshold: number; notes?: string }
 type Move = { id: string; action: string; quantity: number; notes?: string; location?: string; scanned_by?: string; created_at: string }
 
 const ACTION_BADGE: Record<string, string> = { add: "bg-emerald-50 text-emerald-700", sold: "bg-rose-50 text-rose-700", damaged: "bg-amber-50 text-amber-700", transit: "bg-sky-50 text-sky-700" }
 
-function buildBars(code: string) {
-  try { return bitsToRects(encodeCode128(code), 50) }
-  catch { return { rects: [], totalW: 200 } }
-}
-
-function printLabel(item: Item) {
-  const { rects, totalW } = buildBars(item.barcode)
-  const svgBars = rects.map(b => `<rect x="${b.x}" y="2" width="${b.w}" height="48" fill="#111"/>`).join("")
-  const svg = `<svg width="100%" viewBox="0 0 ${totalW} 60" xmlns="http://www.w3.org/2000/svg">${svgBars}</svg>`
-  const win = window.open("", "_blank")
-  if (!win) { alert("Please allow popups to print labels"); return }
-  win.document.write(`<!DOCTYPE html><html><head><title>${item.name}</title><style>body{margin:0;padding:24px;font-family:Arial,sans-serif;text-align:center}</style></head><body>
-  <p style="font-size:16px;font-weight:700;margin:0 0 2px">${item.name}</p>
-  ${item.strength ? `<p style="font-size:12px;color:#666;margin:0 0 2px">${item.strength}${item.form ? " · " + item.form : ""}</p>` : ""}
-  <p style="font-size:11px;color:#888;margin:0 0 8px">SKU: ${item.sku}</p>${svg}
-  <p style="font-size:12px;letter-spacing:4px;margin-top:6px">${item.barcode}</p>
-  <script>window.onload=function(){window.print();setTimeout(function(){window.close()},600)}<\\/script></body></html>`)
-  win.document.close()
-}
-
 export default function ProductDetailClient({ item: init, movements }: { item: Item; movements: Move[] }) {
   const [item, setItem] = useState(init)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({ name: init.name, strength: init.strength || "", form: init.form || "", notes: init.notes || "", reorder_threshold: String(init.reorder_threshold) })
   const [saving, setSaving] = useState(false)
+  const [showPrint, setShowPrint] = useState(false)
   const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }))
-  const { rects, totalW } = buildBars(item.barcode)
 
   const save = async () => {
     setSaving(true)
@@ -109,18 +90,18 @@ export default function ProductDetailClient({ item: init, movements }: { item: I
           {!editing && item.notes && <p className="mt-3 text-xs text-gray-500 bg-gray-50 rounded-lg p-2">{item.notes}</p>}
         </div>
 
-        {/* Barcode card */}
+        {/* QR label card */}
         <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-gray-900">Barcode Label</h2>
-            <button onClick={() => printLabel(item)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B7C79] px-3 py-2 text-xs font-medium text-white hover:bg-[#0a6b68]">
+            <h2 className="text-sm font-semibold text-gray-900">QR Label</h2>
+            <button onClick={() => setShowPrint(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-[#0B7C79] px-3 py-2 text-xs font-medium text-white hover:bg-[#0a6b68]">
               <Printer className="h-3.5 w-3.5" /> Print Label
             </button>
           </div>
           <div className="rounded-xl bg-gray-50 border border-gray-100 p-4 text-center">
-            <svg width="100%" viewBox={`0 0 ${totalW} 60`} xmlns="http://www.w3.org/2000/svg">
-              {rects.map((b, i) => <rect key={i} x={b.x} y={2} width={b.w} height={50} fill="#111" />)}
-            </svg>
+            <div className="mx-auto" style={{ width: 130, height: 130 }}>
+              <QRCodeSVG value={item.barcode || item.sku} size={130} level="M" marginSize={2} style={{ width: "100%", height: "100%" }} />
+            </div>
             <p className="mt-2 text-xs tracking-widest text-gray-500">{item.barcode}</p>
           </div>
         </div>
@@ -155,6 +136,8 @@ export default function ProductDetailClient({ item: init, movements }: { item: I
           </div>
         )}
       </div>
+
+      {showPrint && <PrintLabelModal item={item} onClose={() => setShowPrint(false)} />}
     </div>
   )
 }
