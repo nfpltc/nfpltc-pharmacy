@@ -4,16 +4,14 @@ import { usePathname } from "next/navigation"
 import {
   LayoutDashboard, Bot, MessageCircle, UserCheck, CreditCard, Syringe,
   MessageSquare, Briefcase, Users, BookOpen, UsersRound, FileStack,
-  Pill, Package, ShieldCheck, ExternalLink, Share2, Settings, Wallet, Mail
+  Pill, Package, ShieldCheck, ExternalLink, Share2, Settings, Wallet, Mail, ClipboardList
 } from "lucide-react"
 
 const NAV = [
   { href: "/admin",                  label: "Dashboard",        icon: LayoutDashboard, key: "dashboard" },
   { href: "/admin/assistant",        label: "AI Assistant",     icon: Bot,             key: "assistant" },
   { href: "/admin/chats",            label: "Chats",            icon: MessageCircle,   key: "chats" },
-  { href: "/admin/enrollments",      label: "Enrollments",      icon: UserCheck,       key: "enrollments" },
-  { href: "/admin/credit-cards",     label: "Credit Cards",     icon: CreditCard,      key: "credit-cards" },
-  { href: "/admin/vaccines",         label: "Vaccines",         icon: Syringe,         key: "vaccines" },
+  { href: "/admin/forms",            label: "Forms",            icon: ClipboardList,   key: "forms" },
   { href: "/admin/contacts",         label: "Contacts",         icon: MessageSquare,   key: "contacts" },
   { href: "/admin/jobs",             label: "Jobs & Candidates", icon: Briefcase,       key: "jobs" },
   { href: "/admin/blogs",            label: "Blog",             icon: BookOpen,        key: "blog" },
