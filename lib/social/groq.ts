@@ -34,6 +34,30 @@ export async function groqChat(
   }
 }
 
+// Escape raw control characters that appear INSIDE JSON string literals (a
+// common LLM mistake with multi-line content), while leaving structural
+// whitespace between tokens untouched so pretty-printed JSON still parses.
+function escapeControlCharsInStrings(s: string): string {
+  let out = ""
+  let inStr = false
+  let esc = false
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (esc) { out += ch; esc = false; continue }
+    if (ch === "\\") { out += ch; esc = true; continue }
+    if (ch === '"') { inStr = !inStr; out += ch; continue }
+    if (inStr) {
+      if (ch === "\n") { out += "\\n"; continue }
+      if (ch === "\r") { out += "\\r"; continue }
+      if (ch === "\t") { out += "\\t"; continue }
+      const code = ch.charCodeAt(0)
+      if (code < 0x20) { out += "\\u" + code.toString(16).padStart(4, "0"); continue }
+    }
+    out += ch
+  }
+  return out
+}
+
 // Strips code fences and grabs the outermost JSON object.
 export function parseJson(raw: string): any {
   let s = String(raw).trim().replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "")
@@ -41,7 +65,5 @@ export function parseJson(raw: string): any {
   const b = s.lastIndexOf("}")
   if (a >= 0 && b > a) s = s.slice(a, b + 1)
   try { return JSON.parse(s) } catch { /* try again */ }
-  try {
-    return JSON.parse(s.replace(/[\n\r\t]/g, (m) => ({ "\n": "\\n", "\r": "\\r", "\t": "\\t" }[m] || m)))
-  } catch { return null }
+  try { return JSON.parse(escapeControlCharsInStrings(s)) } catch { return null }
 }
