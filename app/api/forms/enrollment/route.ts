@@ -185,6 +185,9 @@ function buildHtmlSummary(form: any) {
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;background:#f9fafb;padding:20px;border-radius:10px;">
       <h2 style="color:#047857;margin:0 0 8px;">North Falmouth Pharmacy — New Enrollment</h2>
       <p style="margin:0 0 4px;"><b>Name:</b> ${safe(form.firstName)} ${safe(form.lastName)}</p>
+      <p style="margin:0 0 4px;"><b>Submitted by:</b> ${safe(form.submitterRelation) || "—"}${(form.submitterFirstName || form.submitterLastName) ? ` — ${safe(form.submitterFirstName)} ${safe(form.submitterLastName)}`.trimEnd() : ""}</p>
+      <p style="margin:0 0 4px;"><b>Email:</b> ${safe(form.submitterEmail) || safe(form.email) || "—"}</p>
+      <p style="margin:0 0 4px;"><b>Phone:</b> ${safe(form.submitterPhone) || "—"}</p>
       <p style="margin:0 0 4px;"><b>DOB:</b> ${safe(form.dob)}</p>
       <p style="margin:0 0 4px;"><b>Gender:</b> ${safe(form.gender)}</p>
       <p style="margin:0 0 4px;"><b>Address:</b> ${safe(form.homeAddress)}, ${safe(form.city)}, ${safe(form.state)} ${safe(form.zip)}</p>
@@ -352,6 +355,13 @@ async function createStyledPdf(form: any, id: string) {
   line("Today's Date", form.todaysDate)
   line("Start Date", form.startDate)
   line("Start Time", `${form.startTime} ${form.startTimePeriod}`)
+
+  // SUBMITTER / CONTACT (email is always collected on the form)
+  block("Submitter Information")
+  line("Relation to Resident", form.submitterRelation)
+  line("Submitter Name", `${form.submitterFirstName || ""} ${form.submitterLastName || ""}`.trim())
+  line("Submitter Phone", form.submitterPhone)
+  line("Email", form.submitterEmail || form.email)
 
   // RESIDENT INFO
   block("Resident Information")
