@@ -19,8 +19,11 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const body = await req.json(); const { id, ...updates } = body
+    const body = await req.json()
+    // Accept the id from the query string (how the client sends it) or the body.
+    const id = new URL(req.url).searchParams.get("id") || body.id
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 })
+    const { id: _ignored, ...updates } = body
     updates.updated_at = new Date().toISOString()
     const { data, error } = await admin().from("contact_submissions").update(updates).eq("id", id).select().single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })

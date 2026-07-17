@@ -29,9 +29,20 @@ export default function AdminContactsPage() {
   }
 
   const updateStatus = async (id: string, status: string) => {
-    await fetch(`/api/admin/contacts?id=${id}`, { method: "PATCH",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) })
-    load()
+    const prev = items
+    // Optimistically reflect the change so the dropdown doesn't snap back.
+    setItems(cur => cur.map(c => (c.id === id ? { ...c, status } : c)))
+    setViewItem(v => (v && v.id === id ? { ...v, status } : v))
+    try {
+      const r = await fetch(`/api/admin/contacts?id=${id}`, { method: "PATCH",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.error || "Update failed")
+      setMsg({ ok: true, text: `Status saved: ${status.charAt(0).toUpperCase() + status.slice(1)}` })
+    } catch (e: any) {
+      setItems(prev) // revert on failure so the UI stays truthful
+      setMsg({ ok: false, text: e?.message || "Could not save status" })
+    }
   }
 
   const del = async (id: string) => {
