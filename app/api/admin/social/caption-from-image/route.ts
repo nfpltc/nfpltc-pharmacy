@@ -7,8 +7,27 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-// Multimodal model on Groq. Override with GROQ_VISION_MODEL if the id changes.
-const VISION_MODEL = process.env.GROQ_VISION_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct"
+const GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
+
+// Multimodal models on Groq, tried in order. Groq retires model ids over time
+// (llama-4-scout was decommissioned 2026-07-17), so we fall through to the next
+// candidate on a model_not_found instead of breaking the feature.
+// Set GROQ_VISION_MODEL to force a specific one.
+const VISION_MODELS: string[] = Array.from(
+  new Set([process.env.GROQ_VISION_MODEL, "qwen/qwen3.6-27b"].filter(Boolean) as string[])
+)
+
+// Ask Groq which models this account can actually use — turns a dead model id
+// into an actionable message instead of a bare 404.
+async function availableModels(key: string): Promise<string> {
+  try {
+    const r = await fetch(GROQ_MODELS_URL, { headers: { Authorization: `Bearer ${key}` } })
+    if (!r.ok) return ""
+    const d = await r.json()
+    const ids = (d?.data || []).map((m: any) => String(m?.id || "")).filter(Boolean)
+    return ids.join(", ")
+  } catch { return "" }
+}
 
 function system(tone: string) {
   return `You are a senior social media strategist for North Falmouth Pharmacy, a Cape Cod community and long-term-care pharmacy. You are shown an IMAGE. Write THREE completely different, platform-native posts INSPIRED BY what is actually in the image. Reference what is visually present where it makes sense; if the image is a flyer or has text, take inspiration from its theme rather than transcribing it. Do NOT reformat one post into three, each must feel genuinely different in angle and voice. Tone: ${tone}.
@@ -25,13 +44,13 @@ Platform rules:
 NEVER use markdown formatting (no ** or _), plain text only. No medical claims, no drug names, no prices, no dosages. Do not use em dashes.`
 }
 
-type VisionResult = { text: string } | { error: string; status: number }
+type VisionResult = { text: string } | { error: string; status: number; modelMissing?: boolean }
 
 // One Groq vision call. Asks for JSON mode; if this model/date rejects
 // response_format we retry the same call without it (still tolerant-parsed).
-async function callVision(key: string, imageContent: string, tone: string, strict: boolean): Promise<VisionResult> {
+async function callVision(key: string, model: string, imageContent: string, tone: string, strict: boolean): Promise<VisionResult> {
   const body: any = {
-    model: VISION_MODEL,
+    model,
     temperature: strict ? 0.35 : 0.6,
     max_tokens: 1800,
     response_format: { type: "json_object" },
@@ -60,9 +79,11 @@ async function callVision(key: string, imageContent: string, tone: string, stric
     r = await send()
   }
   if (!r.ok) {
-    const detail = (await r.text().catch(() => "")).slice(0, 200)
+    const detail = (await r.text().catch(() => "")).slice(0, 300)
     if (r.status === 429) return { error: "AI is busy — try again in a moment.", status: 429 }
-    return { error: `Vision AI error ${r.status}. ${detail}`, status: r.status }
+    // Model retired or not enabled on this account — the caller tries the next candidate.
+    const modelMissing = r.status === 404 || /model_not_found|does not exist/i.test(detail)
+    return { error: `Vision AI error ${r.status}. ${detail}`, status: r.status, modelMissing }
   }
   const d = await r.json()
   return { text: String(d?.choices?.[0]?.message?.content || "") }
@@ -100,14 +121,32 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // First pass (creative). Then, if the JSON didn't come back clean, one
-    // stricter low-temperature retry before giving up.
-    let last = await callVision(key, imageContent, tone, false)
-    if ("error" in last) return NextResponse.json({ error: last.error }, { status: last.status })
+    // First pass (creative), trying each candidate model until one exists.
+    let last: VisionResult = { error: "No vision model configured.", status: 500, modelMissing: true }
+    let model = ""
+    for (const candidate of VISION_MODELS) {
+      const res = await callVision(key, candidate, imageContent, tone, false)
+      last = res
+      if ("error" in res && res.modelMissing) continue // retired id — try the next
+      model = candidate
+      break
+    }
+
+    if ("error" in last) {
+      if (last.modelMissing) {
+        // Every candidate is gone. Tell the admin exactly what they can use.
+        const list = await availableModels(key)
+        return NextResponse.json({
+          error: `No working vision model. Tried: ${VISION_MODELS.join(", ")}. `
+            + (list ? `Set GROQ_VISION_MODEL to a multimodal id from your account: ${list}` : "Set GROQ_VISION_MODEL to a current Groq multimodal model."),
+        }, { status: 502 })
+      }
+      return NextResponse.json({ error: last.error }, { status: last.status })
+    }
 
     let parsed = parseJson(last.text)
     if (!isComplete(parsed)) {
-      const retry = await callVision(key, imageContent, tone, true)
+      const retry = await callVision(key, model, imageContent, tone, true)
       if ("error" in retry) {
         // A transient failure (rate limit / upstream 5xx) on the retry should
         // surface as itself, not get masked as a generic "couldn't read" 502.
