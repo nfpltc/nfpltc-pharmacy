@@ -32,6 +32,7 @@ const REWRITES: { label: string; instr: string }[] = [
 
 const TONES = ["Warm & friendly", "Professional", "Playful", "Inspirational", "Educational"]
 const DRAFTS_KEY = "nfp_social_drafts"
+const MODEL_KEY = "nfp_social_model"
 
 // Downscale an image file in the browser (max 1600px long edge, JPEG) so uploads
 // stay small and under Vercel's request-body limit, and are right-sized for social.
@@ -56,6 +57,9 @@ export default function SocialEditor() {
   const [tone, setTone] = useState(TONES[0])
   const [composing, setComposing] = useState(false)
   const [texts, setTexts] = useState<Record<Platform, string>>({ linkedin: "", x: "", instagram: "" })
+
+  const [models, setModels] = useState<any[]>([])
+  const [model, setModel] = useState("")
 
   const [imageUrl, setImageUrl] = useState("")
   const [imageCredit, setImageCredit] = useState<{ name: string; link?: string } | null>(null)
@@ -85,7 +89,22 @@ export default function SocialEditor() {
   const [msg, setMsg] = useState<Msg>(null)
   const [drafts, setDrafts] = useState<any[]>([])
 
-  useEffect(() => { loadChannels(); loadQueue(); loadLibrary(); setDrafts(readDrafts()) }, [])
+  useEffect(() => { loadChannels(); loadQueue(); loadLibrary(); loadModels(); setDrafts(readDrafts()) }, [])
+
+  // Which Groq models this account can use, so a retired model is a dropdown
+  // change instead of a code change. Remembers the admin's pick.
+  async function loadModels() {
+    try {
+      const r = await fetch("/api/admin/social/models")
+      const d = await r.json()
+      const list = d.models || []
+      setModels(list)
+      const saved = localStorage.getItem(MODEL_KEY)
+      const visionIds = list.filter((m: any) => m.vision).map((m: any) => m.id)
+      // Keep the saved choice only if it still exists and still does vision.
+      setModel(saved && visionIds.includes(saved) ? saved : (visionIds[0] || ""))
+    } catch { /* dropdown just stays empty; the API still has its own default */ }
+  }
 
   // Story/Reel need media — fall back to a normal post when the image is cleared.
   useEffect(() => { if (!imageUrl && igType !== "post") setIgType("post") }, [imageUrl, igType])
@@ -208,7 +227,7 @@ export default function SocialEditor() {
     try {
       const res = await fetch("/api/admin/social/caption-from-image", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageUrl, tone }),
+        body: JSON.stringify({ imageUrl, tone, model }),
       })
       const d = await res.json()
       if (!res.ok) { setMsg({ type: "error", text: d.error || "Could not read the image." }); return }
@@ -405,6 +424,19 @@ export default function SocialEditor() {
                     className="inline-flex items-center gap-1.5 rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-60">
                     {captioning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Post from image
                   </button>
+                )}
+                {/* AI model picker — only multimodal models can read an image.
+                    Lets an admin switch models when Groq retires one. */}
+                {imageUrl && models.some((m) => m.vision) && (
+                  <select value={model} onChange={(e) => { setModel(e.target.value); localStorage.setItem(MODEL_KEY, e.target.value) }}
+                    title="Which AI model reads the image (price shown per 1M tokens)"
+                    className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-700">
+                    {models.filter((m) => m.vision).map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}{m.perPost ? ` — ${m.perPost}` : ""}{m.price && m.price !== "price n/a" ? ` (${m.price})` : ""}
+                      </option>
+                    ))}
+                  </select>
                 )}
                 {imageUrl && (
                   <button onClick={saveCurrentToLibrary} disabled={uploading} title="Save this image to your library"
