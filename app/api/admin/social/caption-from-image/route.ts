@@ -44,7 +44,27 @@ Platform rules:
 NEVER use markdown formatting (no ** or _), plain text only. No medical claims, no drug names, no prices, no dosages. Do not use em dashes.`
 }
 
-type VisionResult = { text: string } | { error: string; status: number; modelMissing?: boolean }
+type VisionResult = { text: string } | { error: string; status: number; modelMissing?: boolean; retryAfter?: number }
+
+const sleep = (ms: number) => new Promise(res => setTimeout(res, ms))
+
+// Turn Groq's rate-limit headers into a sentence an admin can act on:
+// which limit was hit and when it frees up, instead of a vague "AI is busy".
+function rateLimitDetail(h: Headers, bodyText: string): { msg: string; retryAfter: number } {
+  const retryAfter = Number(h.get("retry-after") || 0)
+  const resetTokens = h.get("x-ratelimit-reset-tokens") || ""
+  const resetReqs = h.get("x-ratelimit-reset-requests") || ""
+  const remainingTokens = h.get("x-ratelimit-remaining-tokens")
+  const remainingReqs = h.get("x-ratelimit-remaining-requests")
+  // Groq's body usually names the exact limit (e.g. "tokens per minute (TPM)").
+  const fromBody = (bodyText.match(/"message"\s*:\s*"([^"]+)"/) || [])[1] || ""
+  const parts: string[] = []
+  if (remainingTokens === "0" || /token/i.test(fromBody)) parts.push(`token limit${resetTokens ? ` (resets in ${resetTokens})` : ""}`)
+  else if (remainingReqs === "0" || /request/i.test(fromBody)) parts.push(`request limit${resetReqs ? ` (resets in ${resetReqs})` : ""}`)
+  const which = parts.length ? parts.join(", ") : "rate limit"
+  const wait = retryAfter ? ` Try again in ${retryAfter}s.` : ""
+  return { msg: `Groq ${which} reached on your plan.${wait}${fromBody ? ` ${fromBody}` : ""}`, retryAfter }
+}
 
 // One Groq vision call. Asks for JSON mode; if this model/date rejects
 // response_format we retry the same call without it (still tolerant-parsed).
@@ -80,7 +100,10 @@ async function callVision(key: string, model: string, imageContent: string, tone
   }
   if (!r.ok) {
     const detail = (await r.text().catch(() => "")).slice(0, 300)
-    if (r.status === 429) return { error: "AI is busy — try again in a moment.", status: 429 }
+    if (r.status === 429) {
+      const { msg, retryAfter } = rateLimitDetail(r.headers, detail)
+      return { error: msg, status: 429, retryAfter }
+    }
     // Model retired or not enabled on this account — the caller tries the next candidate.
     const modelMissing = r.status === 404 || /model_not_found|does not exist/i.test(detail)
     return { error: `Vision AI error ${r.status}. ${detail}`, status: r.status, modelMissing }
@@ -101,6 +124,9 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}))
   const rawUrl = String(b.imageUrl || "").trim()
   const tone = String(b.tone || "Warm & friendly")
+  // The admin can pick the model in the editor; it wins over the env default.
+  const chosen = String(b.model || "").trim()
+  const candidates = Array.from(new Set([chosen, ...VISION_MODELS].filter(Boolean)))
   if (!/^(https?:|data:)/i.test(rawUrl)) {
     return NextResponse.json({ error: "Pick or upload an image first." }, { status: 400 })
   }
@@ -122,10 +148,16 @@ export async function POST(req: NextRequest) {
 
   try {
     // First pass (creative), trying each candidate model until one exists.
+    // A rate limit gets one automatic wait-and-retry, since Groq's per-minute
+    // limits usually clear in seconds and the admin shouldn't have to babysit it.
     let last: VisionResult = { error: "No vision model configured.", status: 500, modelMissing: true }
     let model = ""
-    for (const candidate of VISION_MODELS) {
-      const res = await callVision(key, candidate, imageContent, tone, false)
+    for (const candidate of candidates) {
+      let res = await callVision(key, candidate, imageContent, tone, false)
+      if ("error" in res && res.status === 429 && res.retryAfter && res.retryAfter <= 20) {
+        await sleep((res.retryAfter + 1) * 1000)
+        res = await callVision(key, candidate, imageContent, tone, false)
+      }
       last = res
       if ("error" in res && res.modelMissing) continue // retired id — try the next
       model = candidate
@@ -137,8 +169,8 @@ export async function POST(req: NextRequest) {
         // Every candidate is gone. Tell the admin exactly what they can use.
         const list = await availableModels(key)
         return NextResponse.json({
-          error: `No working vision model. Tried: ${VISION_MODELS.join(", ")}. `
-            + (list ? `Set GROQ_VISION_MODEL to a multimodal id from your account: ${list}` : "Set GROQ_VISION_MODEL to a current Groq multimodal model."),
+          error: `No working vision model. Tried: ${candidates.join(", ")}. `
+            + (list ? `Pick a multimodal model in the editor. Available: ${list}` : "Set GROQ_VISION_MODEL to a current Groq multimodal model."),
         }, { status: 502 })
       }
       return NextResponse.json({ error: last.error }, { status: last.status })
