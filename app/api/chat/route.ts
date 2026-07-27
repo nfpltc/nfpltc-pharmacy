@@ -105,6 +105,18 @@ export async function POST(req: NextRequest) {
       content: m.content,
     }))
 
+    // Hard cap on AI replies per conversation. The bot answers the first few
+    // questions, then stops and directs the person to the pharmacy — so it never
+    // gets pulled into a long back-and-forth about health or medications.
+    // Enforced in code (not just the prompt) so it can't be talked around.
+    const MAX_AI_REPLIES = Number(process.env.CHAT_MAX_AI_REPLIES || 4)
+    const userMsgCount = chatHistory.filter(m => m.role === "user").length
+    if (userMsgCount > MAX_AI_REPLIES) {
+      const capReply = "Thanks for chatting! For anything further, please contact our pharmacy team directly at (508) 564-4459 (Mon–Fri 8:30 AM–4:30 PM) or email wecare@nfpltc.com. They'll be glad to help. 💊"
+      await client.from("chat_messages").insert({ conversation_id: convId, role: "assistant", content: capReply })
+      return NextResponse.json({ conversation_id: convId, status: conv.status, reply: capReply, should_escalate: false })
+    }
+
     // Generate AI response
     const { response, shouldEscalate } = await generateChatResponse(chatHistory)
 
