@@ -397,6 +397,10 @@ export default function ChatWidget({ landing = false }: { landing?: boolean }) {
               <Phone className="h-3.5 w-3.5" /> Talk to a person
             </button>
           )}
+          {/* Liability disclaimer — always visible, not model-generated. */}
+          <p className="mt-1.5 text-center text-[10px] leading-snug text-gray-400">
+            General info only, not medical advice. Always confirm with a pharmacist before acting on anything. Call (508) 564-4459.
+          </p>
         </div>
       )}
     </div>
