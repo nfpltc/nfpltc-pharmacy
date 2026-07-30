@@ -67,19 +67,26 @@ export async function middleware(req: NextRequest) {
 
     if (!lookupRes.ok) return res // table/lookup unavailable — fail-open (don't lock everyone out)
     const rows = await lookupRes.json()
-    const adminUser = Array.isArray(rows) ? rows[0] : null
+    const list: any[] = Array.isArray(rows) ? rows : (rows ? [rows] : [])
 
     // No admin_users record = backward-compatible full access (legacy admin accounts)
-    if (!adminUser) return res
-    // Admin role = full access
-    if (adminUser.role === "admin") return res
-    // Deactivated = block entirely
-    if (!adminUser.active) return NextResponse.redirect(new URL("/admin/login?deactivated=1", req.url))
+    if (list.length === 0) return res
 
-    const allowed: string[] = adminUser.allowed_pages || []
-    if (!allowed.includes(match.key)) {
-      // Redirect to dashboard — Veera never sees the page or even a "denied" message
-      // referencing the page name, just lands back on her own overview.
+    // Resolve access across ALL rows for this email, most-permissive. If the
+    // email has a duplicate/ambiguous record, the page layout still shows the
+    // full sidebar (its .maybeSingle() lookup fails open), so the middleware must
+    // agree or a real admin gets bounced from guarded pages while others load.
+    // A genuinely restricted single account is unaffected (union of one row).
+    if (list.some(u => u.role === "admin")) return res
+    const activeRows = list.filter(u => u.active)
+    // Every matching record is deactivated = block entirely.
+    if (activeRows.length === 0) return NextResponse.redirect(new URL("/admin/login?deactivated=1", req.url))
+
+    const allowed = new Set<string>()
+    for (const u of activeRows) for (const p of (u.allowed_pages || [])) allowed.add(String(p))
+    if (!allowed.has(match.key)) {
+      // Redirect to dashboard — the user never sees the page or a "denied"
+      // message referencing the page name, just lands back on their overview.
       return NextResponse.redirect(new URL("/admin", req.url))
     }
 

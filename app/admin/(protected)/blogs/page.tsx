@@ -1,7 +1,7 @@
 "use client"
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, PenLine } from "lucide-react"
 import BlogAutomationPanel from "@/components/BlogAutomationPanel"
 
 interface Post {
@@ -62,6 +62,9 @@ export default function AdminBlogPage() {
     setShowForm(true)
   }
 
+  // Open the manual editor with a blank article.
+  const openNew = () => { setEditing(null); setForm(emptyForm); setImageFile(null); setShowForm(true) }
+
   const handleToggle = async (p: Post) => {
     const fd = new FormData()
     fd.append("id", p.id)
@@ -85,6 +88,16 @@ export default function AdminBlogPage() {
 
   return (
     <div>
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-900">Blog</h1>
+            <p className="text-sm text-gray-500">Write a post by hand, or generate one with AI below.</p>
+          </div>
+          <button onClick={openNew} className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-800">
+            <PenLine className="h-4 w-4" /> Write article
+          </button>
+        </div>
+
         {msg && <div className={`mb-6 flex items-center justify-between rounded-lg border p-4 text-sm ${msg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}><span>{msg.text}</span><button onClick={() => setMsg(null)}>×</button></div>}
 
         <BlogAutomationPanel onGenerated={() => load()} />
