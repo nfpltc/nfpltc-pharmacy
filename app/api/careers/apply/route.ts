@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { Resend } from "resend"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 export async function POST(request: NextRequest) {
   try {
@@ -81,52 +79,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Failed to save application" }, { status: 500 })
     }
 
-    // Email admin
-    try {
-      const attachments: any[] = []
-      if (resumeFile && resumeFile.size > 0) {
-        attachments.push({
-          filename: resume_filename || "resume.pdf",
-          content: Buffer.from(await resumeFile.arrayBuffer()),
-        })
-      }
-
-      await resend.emails.send({
-        from: process.env.FROM_EMAIL || "noreply@nfpltc.com",
-        to: process.env.TO_EMAIL || "wecare@nfpltc.com",
-        subject: `New Application: ${data.job_title} — ${first_name} ${last_name}`,
-        html: `
-          <div style="font-family:Arial,sans-serif;max-width:600px;">
-            <h2 style="color:#059669;">New Job Application</h2>
-            <p><b>Position:</b> ${data.job_title}</p>
-            <p><b>Name:</b> ${first_name} ${last_name}</p>
-            <p><b>Email:</b> ${email}</p>
-            <p><b>Phone:</b> ${phone}</p>
-            <p><b>Experience:</b> ${data.years_experience || "—"}</p>
-            <p><b>Education:</b> ${data.highest_education || "—"}</p>
-            <p style="margin-top:20px;"><a href="https://nfpltc.com/admin/candidates" style="background:#000;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;">View in Admin</a></p>
-          </div>
-        `,
-        ...(attachments.length > 0 ? { attachments } : {}),
-      })
-    } catch (e) { console.error("Admin email error:", e) }
-
-    // Confirmation email to applicant
-    try {
-      await resend.emails.send({
-        from: process.env.FROM_EMAIL || "noreply@nfpltc.com",
-        to: email,
-        subject: `Application Received — ${data.job_title}`,
-        html: `
-          <div style="font-family:Arial,sans-serif;max-width:600px;">
-            <h2 style="color:#059669;">Thank You, ${first_name}!</h2>
-            <p>We've received your application for <b>${data.job_title}</b> at North Falmouth Pharmacy.</p>
-            <p>Our hiring team will review your application and reach out within 5-7 business days if your qualifications match our needs.</p>
-            <p>Best regards,<br><b>North Falmouth Pharmacy Team</b><br>(508) 564-4459</p>
-          </div>
-        `,
-      })
-    } catch (e) { console.error("Applicant email error:", e) }
+    // No emails are sent for job applications (neither an admin notification nor
+    // an applicant confirmation). Applications are saved above and reviewed only
+    // in the admin under Jobs & Candidates.
 
     return NextResponse.json({ success: true, message: "Application submitted", applicationId: application.id })
   } catch (error: any) {
