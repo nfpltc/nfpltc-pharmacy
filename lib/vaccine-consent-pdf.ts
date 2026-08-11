@@ -55,17 +55,22 @@ export function maskSsn(ssn: any): string {
 }
 
 async function embedLogo(pdf: PDFDocument) {
-  // The site logo is an SVG, which pdf-lib cannot embed. Prefer a raster
-  // logo if one is present and fall back to a text wordmark otherwise.
-  for (const file of ["logo.png", "logo.jpg", "logo.jpeg"]) {
-    try {
-      const bytes = await readFile(path.join(process.cwd(), "public", file))
-      const img = file.endsWith(".png") ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes)
-      return { node: img, width: img.width, height: img.height }
-    } catch {
-      // try the next candidate
-    }
-  }
+  // The site logo is an SVG, which pdf-lib cannot embed. Prefer a raster logo if
+  // one is present, else fall back to a text wordmark. Each path is written as a
+  // literal (not a loop variable) so Next's file tracer includes exactly these
+  // files instead of globbing all of /public into the function bundle.
+  try {
+    const img = await pdf.embedPng(await readFile(path.join(process.cwd(), "public", "logo.png")))
+    return { node: img, width: img.width, height: img.height }
+  } catch { /* try next candidate */ }
+  try {
+    const img = await pdf.embedJpg(await readFile(path.join(process.cwd(), "public", "logo.jpg")))
+    return { node: img, width: img.width, height: img.height }
+  } catch { /* try next candidate */ }
+  try {
+    const img = await pdf.embedJpg(await readFile(path.join(process.cwd(), "public", "logo.jpeg")))
+    return { node: img, width: img.width, height: img.height }
+  } catch { /* fall through to wordmark */ }
   return null
 }
 
