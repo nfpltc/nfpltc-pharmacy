@@ -17,7 +17,8 @@ type Msg = { type: "success" | "error" | "info"; text: string } | null
 
 const PLATFORMS: { id: Platform; label: string; icon: any; limit: number }[] = [
   { id: "linkedin", label: "LinkedIn", icon: Linkedin, limit: 3000 },
-  { id: "x", label: "X", icon: Twitter, limit: 270 },
+  // X hidden — not currently in use. Uncomment this line to bring it back.
+  // { id: "x", label: "X", icon: Twitter, limit: 270 },
   { id: "instagram", label: "Instagram", icon: Instagram, limit: 2000 },
   { id: "facebook", label: "Facebook", icon: Facebook, limit: 63206 },
 ]
@@ -267,7 +268,7 @@ export default function SocialEditor() {
     try {
       const res = await fetch("/api/admin/buffer/post", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channelId: selected[platform], text: texts[platform], imageUrl: imageUrl || undefined, mode: "shareNow", instagramType: platform === "instagram" ? igType : undefined }),
+        body: JSON.stringify({ channelId: selected[platform], text: texts[platform], imageUrl: imageUrl || undefined, mode: "shareNow", instagramType: platform === "instagram" ? igType : undefined, facebookType: platform === "facebook" ? "post" : undefined }),
       })
       const d = await res.json()
       setMsg(res.ok
@@ -489,7 +490,7 @@ export default function SocialEditor() {
       )}
 
       {/* Platform cards */}
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {PLATFORMS.map((p) => (
           <PlatformCard
             key={p.id} p={p} text={texts[p.id]} onText={(v) => setTexts((t) => ({ ...t, [p.id]: v }))}
