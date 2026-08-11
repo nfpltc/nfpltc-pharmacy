@@ -503,6 +503,14 @@ export default function VaccineConsentPage() {
           <p className="mt-4 max-w-2xl text-white/80">
             Please complete every section. You will be able to download a PDF copy once you submit.
           </p>
+          <a
+            href="/api/forms/vaccine-consent/blank"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50"
+          >
+            ⬇ Prefer paper? Download a blank form to print and fill by hand
+          </a>
         </div>
       </section>
 

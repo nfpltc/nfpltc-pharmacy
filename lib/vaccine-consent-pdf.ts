@@ -12,10 +12,13 @@ import { readFile } from "fs/promises"
 import path from "path"
 import {
   ADMIN_TABLE_COLUMNS,
+  ADMIN_TABLE_ROWS,
   COVID_SCREENING,
   GENERAL_SCREENING,
   LIVE_VACCINE_SCREENING,
   Q17_FOOTNOTE,
+  Q18_CONDITIONS,
+  VACCINE_OPTIONS,
   type ScreeningQuestion,
 } from "./vaccine-consent-form"
 
@@ -74,7 +77,15 @@ async function embedLogo(pdf: PDFDocument) {
   return null
 }
 
-export async function createConsentPdf(form: Record<string, any>, recordId: string) {
+export async function createConsentPdf(
+  form: Record<string, any>,
+  recordId: string,
+  opts: { blank?: boolean } = {},
+) {
+  // Blank mode prints an empty, fillable form (write-in lines + checkboxes) for
+  // patients who prefer to complete it by hand. The same builder is used so the
+  // paper and the online form can never drift apart.
+  const blank = !!opts.blank
   const pdf = await PDFDocument.create()
   const font = await pdf.embedFont(StandardFonts.Helvetica)
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold)
@@ -171,6 +182,13 @@ export async function createConsentPdf(form: Record<string, any>, recordId: stri
   const VALUE_W = PAGE_W - VALUE_X - MARGIN
 
   const line = (label: string, value: any) => {
+    if (blank) {
+      if (y - 16 < 60) newPage()
+      y -= 16
+      page.drawText(toWinAnsi(`${label}:`), { x: LABEL_X, y, size: 10, font: bold })
+      page.drawLine({ start: { x: VALUE_X, y: y - 2 }, end: { x: PAGE_W - MARGIN, y: y - 2 }, thickness: 0.5, color: rgb(0.78, 0.78, 0.78) })
+      return
+    }
     const text = value === null || value === undefined || value === "" ? "-" : String(value)
     const wrapped = wrap(text, font, 10, VALUE_W)
     if (y - (14 + (wrapped.length - 1) * 13) < 60) newPage()
@@ -183,12 +201,56 @@ export async function createConsentPdf(form: Record<string, any>, recordId: stri
     }
   }
 
+  // A small empty checkbox for the printable blank form.
+  const checkbox = (x: number, atY: number) => {
+    page.drawRectangle({ x, y: atY - 1, width: 9, height: 9, borderColor: rgb(0.45, 0.45, 0.45), borderWidth: 0.8, color: rgb(1, 1, 1) })
+  }
+
+  // A checkbox list of options — used in blank mode for the multi-select fields.
+  const optionList = (items: readonly string[]) => {
+    for (const item of items) {
+      const wrapped = wrap(item, font, 9.5, PAGE_W - MARGIN * 2 - 30)
+      if (y - wrapped.length * 12 < 60) newPage()
+      y -= 14
+      checkbox(LABEL_X, y)
+      page.drawText(toWinAnsi(wrapped[0]), { x: LABEL_X + 16, y, size: 9.5, font })
+      for (let i = 1; i < wrapped.length; i++) {
+        y -= 12
+        page.drawText(toWinAnsi(wrapped[i]), { x: LABEL_X + 16, y, size: 9.5, font })
+      }
+    }
+  }
+
   /**
    * Render one screening question: the full question text wrapped across the
    * page with its Yes/No answer right-aligned, matching the paper layout so a
    * pharmacist can check the two side by side.
    */
   const question = (q: ScreeningQuestion) => {
+    if (blank) {
+      const label = q.note ? `${q.number}. ${q.text} (${q.note})` : `${q.number}. ${q.text}`
+      const wrapped = wrap(label, font, 9.5, PAGE_W - MARGIN * 2 - 96)
+      if (y - (wrapped.length * 12 + 18) < 60) newPage()
+      y -= 14
+      page.drawText(wrapped[0], { x: LABEL_X, y, size: 9.5, font })
+      checkbox(PAGE_W - MARGIN - 84, y)
+      page.drawText("Yes", { x: PAGE_W - MARGIN - 72, y, size: 9, font })
+      checkbox(PAGE_W - MARGIN - 40, y)
+      page.drawText("No", { x: PAGE_W - MARGIN - 28, y, size: 9, font })
+      for (let i = 1; i < wrapped.length; i++) {
+        y -= 12
+        page.drawText(wrapped[i], { x: LABEL_X, y, size: 9.5, font })
+      }
+      if (q.detail || q.detailDate) {
+        if (y - 13 < 60) newPage()
+        y -= 13
+        const flabel = q.detailDate ? "If yes, date of last dose:" : "If yes, please list:"
+        page.drawText(flabel, { x: LABEL_X + 14, y, size: 8.5, font: italic, color: rgb(0.4, 0.4, 0.4) })
+        const fx = LABEL_X + 14 + italic.widthOfTextAtSize(flabel, 8.5) + 6
+        page.drawLine({ start: { x: fx, y: y - 2 }, end: { x: PAGE_W - MARGIN, y: y - 2 }, thickness: 0.5, color: rgb(0.82, 0.82, 0.82) })
+      }
+      return
+    }
     const answer = safe(form[q.key]) || "-"
     const label = q.note ? `${q.number}. ${q.text} (${q.note})` : `${q.number}. ${q.text}`
     const wrapped = wrap(label, font, 9.5, PAGE_W - MARGIN * 2 - 60)
@@ -240,8 +302,10 @@ export async function createConsentPdf(form: Record<string, any>, recordId: stri
   }
 
   // ---- Meta ---------------------------------------------------------------
-  line("Record ID", recordId)
-  line("Submitted", new Date().toLocaleString())
+  if (!blank) {
+    line("Record ID", recordId)
+    line("Submitted", new Date().toLocaleString())
+  }
 
   // ---- Section A ----------------------------------------------------------
   block("Section A - Patient Information")
@@ -265,11 +329,15 @@ export async function createConsentPdf(form: Record<string, any>, recordId: stri
 
   // ---- Vaccines requested -------------------------------------------------
   block("Vaccinations Requested Today")
-  const requested: string[] = Array.isArray(form.vaccinesRequested) ? [...form.vaccinesRequested] : []
-  const requestedDisplay = requested.map((v) =>
-    v === "Other" && form.otherVaccineText ? `Other: ${safe(form.otherVaccineText)}` : v
-  )
-  bullets(requestedDisplay)
+  if (blank) {
+    optionList(VACCINE_OPTIONS)
+  } else {
+    const requested: string[] = Array.isArray(form.vaccinesRequested) ? [...form.vaccinesRequested] : []
+    const requestedDisplay = requested.map((v) =>
+      v === "Other" && form.otherVaccineText ? `Other: ${safe(form.otherVaccineText)}` : v
+    )
+    bullets(requestedDisplay)
+  }
 
   // ---- Section B ----------------------------------------------------------
   block("Section B - General Vaccine Screening")
@@ -292,7 +360,8 @@ export async function createConsentPdf(form: Record<string, any>, recordId: stri
   if (y < 90) newPage()
   y -= 14
   page.drawText("18. Check all that apply to you:", { x: LABEL_X, y, size: 9.5, font: bold })
-  bullets(Array.isArray(form.q18Conditions) ? form.q18Conditions : [])
+  if (blank) optionList(Q18_CONDITIONS)
+  else bullets(Array.isArray(form.q18Conditions) ? form.q18Conditions : [])
 
   // ---- Section D — consent ------------------------------------------------
   block("Section D - Consent and Release")
@@ -334,23 +403,46 @@ export async function createConsentPdf(form: Record<string, any>, recordId: stri
   line("SSN", maskSsn(form.ssn))
   line("Authorizes billing", form?.authorizeBilling ? "Yes" : "No")
 
-  // ---- Clinic use ---------------------------------------------------------
-  const rows = Array.isArray(form.vaccineRows)
+  // ---- Vaccine Administration (Pharmacy Use Only) — always printed --------
+  // The immunizer completes this at the appointment, so the grid is always on
+  // the document: empty on a fresh submission / blank form, filled once an
+  // admin records the doses.
+  const filledRows = Array.isArray(form.vaccineRows)
     ? form.vaccineRows.filter((r: any) => r && Object.values(r).some((v) => safe(v).trim() !== ""))
     : []
-  if (rows.length || form.immunizerName) {
-    block("Vaccine Administration (Clinic Use)")
-    rows.forEach((row: any, i: number) => {
-      if (y - 20 < 80) newPage()
-      y -= 12
-      page.drawText(`Row ${i + 1}`, { x: LABEL_X, y, size: 10, font: bold, color: GREEN })
-      for (const col of ADMIN_TABLE_COLUMNS) {
-        line(col.label, safe(row[col.key]))
-      }
-      y -= 4
-    })
-    if (form.immunizerName) line("Immunizer name", safe(form.immunizerName))
+  const adminRows: any[] = filledRows.length ? filledRows : ADMIN_TABLE_ROWS.map((name) => ({ vaccine: name }))
+
+  block("Vaccine Administration (Pharmacy Use Only)")
+  if (y - 14 < 70) newPage()
+  y -= 12
+  page.drawText("Completed by the immunizer at the time of the appointment.", {
+    x: LABEL_X, y, size: 8.5, font: italic, color: rgb(0.45, 0.45, 0.45),
+  })
+
+  const COL_W = (PAGE_W - MARGIN * 2) / 3
+  const cellField = (colX: number, atY: number, label: string, value: string) => {
+    page.drawText(toWinAnsi(label), { x: colX, y: atY, size: 7.5, font, color: rgb(0.45, 0.45, 0.45) })
+    if (value) page.drawText(toWinAnsi(value), { x: colX, y: atY - 12, size: 9, font })
+    page.drawLine({ start: { x: colX, y: atY - 14 }, end: { x: colX + COL_W - 14, y: atY - 14 }, thickness: 0.5, color: rgb(0.82, 0.82, 0.82) })
   }
+
+  for (const row of adminRows) {
+    if (y - 92 < 60) newPage()
+    y -= 22
+    for (let r = 0; r < 3; r++) {
+      const cols = ADMIN_TABLE_COLUMNS.slice(r * 3, r * 3 + 3)
+      cols.forEach((col, c) => cellField(MARGIN + c * COL_W, y, col.label, safe(row[col.key])))
+      y -= 26
+    }
+  }
+
+  if (y - 22 < 60) newPage()
+  y -= 22
+  const imLabel = "Immunizer name (print):"
+  page.drawText(imLabel, { x: LABEL_X, y, size: 9, font: bold })
+  const imX = LABEL_X + bold.widthOfTextAtSize(imLabel, 9) + 8
+  if (form.immunizerName && !blank) page.drawText(toWinAnsi(safe(form.immunizerName)), { x: imX, y, size: 9, font })
+  page.drawLine({ start: { x: imX, y: y - 2 }, end: { x: PAGE_W - MARGIN, y: y - 2 }, thickness: 0.5, color: rgb(0.82, 0.82, 0.82) })
 
   // ---- Footer on every page ----------------------------------------------
   const stamp = `Generated by North Falmouth Pharmacy | ${new Date().toLocaleString()}`
