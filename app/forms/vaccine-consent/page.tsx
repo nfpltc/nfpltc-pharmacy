@@ -1,104 +1,186 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { useForm, useFieldArray } from "react-hook-form"
+import { useState } from "react"
+import { useForm, useFieldArray, type UseFormRegister } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { HippaDisclaimerModal } from "@/components/HippaDisclaimerModal"
-import FormSuccess from "@/components/FormSuccess"
+import {
+  ADMIN_TABLE_COLUMNS,
+  ALL_SCREENING,
+  COVID_SCREENING,
+  ETHNICITY_OPTIONS,
+  GENDER_OPTIONS,
+  GENERAL_SCREENING,
+  INSURANCE_TYPE_OPTIONS,
+  LIVE_VACCINE_SCREENING,
+  Q17_FOOTNOTE,
+  Q18_CONDITIONS,
+  RACE_OPTIONS,
+  VACCINE_OPTIONS,
+  type ScreeningQuestion,
+} from "@/lib/vaccine-consent-form"
 
-// ---------- Schemas
+// ---------------------------------------------------------------------------
+// Schema
+//
+// The screening questions are folded in from the shared definition rather than
+// hand-listed, so adding a question to lib/vaccine-consent-form.ts is enough to
+// have it validated here, rendered below, printed on the PDF and stored.
+// ---------------------------------------------------------------------------
+const yesNo = z.enum(["Yes", "No"])
+
+/**
+ * An optional dropdown. A `<select>` whose placeholder is selected submits ""
+ * — which `z.enum([...]).optional()` rejects, because `optional()` only allows
+ * `undefined`. Without this preprocessing, Gender/Race/Ethnicity are optional
+ * on the printed form but impossible to leave blank on screen, and the patient
+ * is shown a raw "Invalid enum value. Expected 'Female' | 'Male'…" message.
+ */
+const optionalEnum = <T extends readonly [string, ...string[]]>(values: T) =>
+  z.preprocess((v) => (v === "" || v === null ? undefined : v), z.enum(values).optional())
+
+/**
+ * An unanswered Yes/No question. react-hook-form hands back `null` for a radio
+ * group with nothing selected, which `.optional()` rejects — so normalize both
+ * `null` and `""` to `undefined` and let the refinements below decide which
+ * questions actually have to be answered.
+ */
+const optionalYesNo = z.preprocess(
+  (v) => (v === "" || v === null ? undefined : v),
+  yesNo.optional()
+)
+
+const screeningShape: Record<string, z.ZodTypeAny> = {}
+for (const q of ALL_SCREENING) {
+  screeningShape[q.key] = optionalYesNo
+  if (q.detail) screeningShape[q.detail.key] = z.string().optional()
+  if (q.detailDate) screeningShape[q.detailDate.key] = z.string().optional()
+}
+
 const vaccineRowSchema = z.object({
   vaccine: z.string().optional(),
-  manufacturer: z.string().optional(),
-  adminDate: z.string().optional(),
+  mfr: z.string().optional(),
+  dateAdmin: z.string().optional(),
   lotNo: z.string().optional(),
   expDate: z.string().optional(),
   dosage: z.string().optional(),
+  injectionSite: z.string().optional(),
+  visEuaDate: z.string().optional(),
+  doseInSeries: z.string().optional(),
 })
 
-const schema = z.object({
-  // Patient (prefilled with selects/radios where possible)
-  firstName: z.string().min(1, "Required"),
-  lastName: z.string().min(1, "Required"),
-  dob: z.string().min(1, "Required"),
-  age: z.string().min(1, "Required"),
-  sexAtBirth: z.enum(["Female", "Male", "Intersex", "Prefer not to say"]).optional(),
-  genderIdentity: z.enum(["Female", "Male", "Non-binary", "Other", "Prefer not to say"]).optional(),
-  phone: z.string().min(1, "Required"),
-  email: z.string().email("Invalid email").optional(),
-  address: z.string().min(1, "Required"),
-  city: z.string().min(1, "Required"),
-  state: z.string().min(1, "Required"),
-  zip: z.string().min(1, "Required"),
+const schema = z
+  .object({
+    // Section A
+    firstName: z.string().min(1, "Required"),
+    lastName: z.string().min(1, "Required"),
+    age: z.string().min(1, "Required"),
+    dob: z.string().min(1, "Required"),
+    gender: optionalEnum(GENDER_OPTIONS),
+    race: optionalEnum(RACE_OPTIONS),
+    ethnicity: optionalEnum(ETHNICITY_OPTIONS),
+    address: z.string().min(1, "Required"),
+    city: z.string().min(1, "Required"),
+    state: z.string().min(1, "Required"),
+    zip: z.string().min(1, "Required"),
+    email: z.union([z.string().email("Invalid email"), z.literal("")]).optional(),
+    phone: z.string().min(1, "Required"),
+    physicianName: z.string().optional(),
+    physicianPhone: z.string().optional(),
+    physicianFax: z.string().optional(),
 
-  // Race/Ethnicity (dropdowns / multi)
-  race: z.enum([
-    "American Indian/Alaska Native",
-    "Asian",
-    "Black/African American",
-    "Native Hawaiian/Other Pacific Islander",
-    "White",
-    "Other",
-    "Prefer not to say",
-  ]).optional(),
-  ethnicity: z.enum(["Hispanic or Latino", "Not Hispanic or Latino", "Prefer not to say"]).optional(),
+    // Section B + C
+    ...screeningShape,
 
-  // Physician (optional)
-  physicianName: z.string().optional(),
-  physicianPhone: z.string().optional(),
-  physicianFax: z.string().optional(),
+    // Vaccines requested
+    vaccinesRequested: z.array(z.string()).min(1, "Select at least one vaccine"),
+    otherVaccineText: z.string().optional(),
 
-  // Vaccine requested (mirror typical consent)
-  vaccinesRequested: z.array(z.string()).optional(),
-  otherVaccineText: z.string().optional(),
-  doseNumber: z.enum(["First dose", "Second dose", "Booster", "Unknown"]).optional(),
-  lastDoseDate: z.string().optional(),
-  anyPastReaction: z.enum(["Yes", "No"]).optional(),
-  pastReactionDetails: z.string().optional(),
+    // Section C, question 18
+    q18Conditions: z.array(z.string()).default([]),
 
-  // Allergies / conditions (mostly radios)
-  allergiesLatex: z.enum(["Yes", "No"]).optional(),
-  allergiesMedicationFoodVaccine: z.enum(["Yes", "No"]).optional(),
-  historySevereAllergicReaction: z.enum(["Yes", "No"]).optional(),
-  neurologicalDisorderGBS: z.enum(["Yes", "No"]).optional(),
-  bleedingDisorderAnticoagulant: z.enum(["Yes", "No"]).optional(),
-  immunocompromised: z.enum(["Yes", "No"]).optional(),
-  pregnantOrBreastfeeding: z.enum(["Yes", "No", "N/A"]).optional(),
-  currentlyIll: z.enum(["Yes", "No"]).optional(),
+    // Section D — consent
+    consentName: z.string().min(1, "Type your full name to sign"),
+    consentDate: z.string().min(1, "Required"),
+    consentAgree: z.boolean().refine((v) => v === true, {
+      message: "You must agree to the consent statement",
+    }),
 
-  // COVID-specific (common in consent)
-  covidReceivedDose: z.enum(["Yes", "No"]).optional(),
-  covidAllergyPEGP80: z.enum(["Yes", "No"]).optional(),
-  covidOtherApplies: z.enum(["Yes", "No"]).optional(),
-  covidOtherDetails: z.string().optional(),
+    // Section D — insurance
+    insuranceTypes: z.array(z.string()).default([]),
+    insurancePlanName: z.string().optional(),
+    memberId: z.string().optional(),
+    rxBin: z.string().optional(),
+    rxPcn: z.string().optional(),
+    groupNo: z.string().optional(),
+    medicareCardNo: z.string().optional(),
+    medicareId: z.string().optional(),
+    ssn: z.string().optional(),
+    authorizeBilling: z.boolean().default(false),
 
-  // Insurance (min typing)
-  insurancePlanType: z.enum(["Medical", "Pharmacy", "Medicare", "Medicaid", "Self-pay", "Unknown"]).optional(),
-  insuranceMemberId: z.string().optional(),
-  insuranceGroup: z.string().optional(),
-  insuranceBIN: z.string().optional(),
-  insurancePCN: z.string().optional(),
-  medicareNumber: z.string().optional(),
-  authorizeBilling: z.boolean().optional(),
+    // Clinic use
+    vaccineRows: z.array(vaccineRowSchema).default([]),
+    immunizerName: z.string().optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.vaccinesRequested?.includes("Other") && !val.otherVaccineText?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["otherVaccineText"],
+        message: "Please specify the other vaccine",
+      })
+    }
 
-  // Vaccine admin table (for in-clinic use if needed)
-  vaccineRows: z.array(vaccineRowSchema).default([]),
-
-  // Consent
-  consentName: z.string().min(1, "Type your full name to sign"),
-  consentDate: z.string().min(1, "Required"),
-  consentAgree: z.boolean().refine(v => v === true, { message: "You must agree to the consent statement" }),
-})
+    // Every screening question must be answered before the form can be sent.
+    // A blank answer is an unverified contraindication, not an implied "No",
+    // so the pharmacist should never receive a partially screened patient —
+    // including the product-scoped questions ("MMR only", "Typhoid only"),
+    // which are answered so the record is complete whichever vaccine is given.
+    for (const q of ALL_SCREENING) {
+      if (!(val as any)[q.key]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [q.key],
+          message: "Please answer Yes or No",
+        })
+      }
+    }
+    // Follow-up lists are only meaningful when the answer was "Yes".
+    for (const q of ALL_SCREENING) {
+      if (!q.detail) continue
+      if ((val as any)[q.key] === "Yes" && !String((val as any)[q.detail.key] ?? "").trim()) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [q.detail.key],
+          message: "Required when you answer Yes",
+        })
+      }
+    }
+  })
 
 type FormData = z.infer<typeof schema>
 
-// ---------- UI helpers
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+// ---------------------------------------------------------------------------
+// UI helpers
+// ---------------------------------------------------------------------------
+const inputClass =
+  "h-12 w-full rounded-md border border-black/10 bg-background px-3 outline-none ring-offset-background focus:ring-2 focus:ring-emerald-500"
+
+function Section({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string
+  subtitle?: string
+  children: React.ReactNode
+}) {
   return (
-    <section className="rounded-2xl border p-4">
-      <h2 className="mb-4 text-xl font-semibold">{title}</h2>
-      {children}
+    <section className="rounded-2xl border bg-white p-4 md:p-6">
+      <h2 className="text-xl font-semibold">{title}</h2>
+      {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+      <div className="mt-4">{children}</div>
     </section>
   )
 }
@@ -108,32 +190,35 @@ function FieldError({ message }: { message?: string }) {
   return <p className="mt-1 text-xs text-red-600">{message}</p>
 }
 
-function RadioRow({
+function InputField({
   label,
   name,
   register,
-  options,
   error,
+  type = "text",
+  placeholder,
+  autoComplete,
 }: {
   label: string
-  name: keyof FormData
-  register: ReturnType<typeof useForm<FormData>>["register"]
-  options: string[]
+  name: any
+  register: UseFormRegister<FormData>
   error?: string
+  type?: string
+  placeholder?: string
+  autoComplete?: string
 }) {
   return (
-    <div className="space-y-1">
-      <div className="text-sm font-medium">{label}</div>
-      <div className="flex flex-wrap gap-4">
-        {options.map((opt) => (
-          <label key={opt} className="flex items-center gap-2 text-sm">
-            <input type="radio" value={opt} {...register(name)} />
-            <span>{opt}</span>
-          </label>
-        ))}
-      </div>
+    <label className="block">
+      <span className="mb-2 block text-sm font-medium">{label}</span>
+      <input
+        type={type}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        className={inputClass}
+        {...register(name)}
+      />
       <FieldError message={error} />
-    </div>
+    </label>
   )
 }
 
@@ -144,24 +229,18 @@ function SelectField({
   options,
   error,
   placeholder = "Select",
-  required = false,
 }: {
   label: string
-  name: keyof FormData
-  register: ReturnType<typeof useForm<FormData>>["register"]
-  options: string[]
+  name: any
+  register: UseFormRegister<FormData>
+  options: readonly string[]
   error?: string
   placeholder?: string
-  required?: boolean
 }) {
   return (
     <label className="block">
       <span className="mb-2 block text-sm font-medium">{label}</span>
-      <select
-        className="h-12 w-full rounded-md border border-black/10 bg-background px-3 outline-none ring-offset-background focus:ring-2 focus:ring-emerald-500"
-        {...register(name, { required })}
-        defaultValue=""
-      >
+      <select className={inputClass} defaultValue="" {...register(name)}>
         <option value="" disabled>
           {placeholder}
         </option>
@@ -176,119 +255,160 @@ function SelectField({
   )
 }
 
-function InputField({
-  label,
-  name,
-  register,
-  error,
-  type = "text",
-  placeholder,
+/** A checkbox group backed by an array field. */
+function CheckboxGroup({
+  options,
+  selected,
+  onToggle,
+  columns = 1,
 }: {
-  label: string
-  name: keyof FormData
-  register: ReturnType<typeof useForm<FormData>>["register"]
-  error?: string
-  type?: string
-  placeholder?: string
+  options: readonly string[]
+  selected: string[]
+  onToggle: (value: string, checked: boolean) => void
+  columns?: number
 }) {
+  const grid = columns === 1 ? "grid-cols-1" : columns === 2 ? "sm:grid-cols-2" : "sm:grid-cols-2 lg:grid-cols-3"
   return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-medium">{label}</span>
-      <input
-        type={type}
-        placeholder={placeholder}
-        className="h-12 w-full rounded-md border border-black/10 bg-background px-3 outline-none ring-offset-background focus:ring-2 focus:ring-emerald-500"
-        {...register(name)}
-      />
-      <FieldError message={error} />
-    </label>
+    <div className={`grid gap-2 ${grid}`}>
+      {options.map((opt) => (
+        <label key={opt} className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={selected.includes(opt)}
+            onChange={(e) => onToggle(opt, e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+          />
+          <span>{opt}</span>
+        </label>
+      ))}
+    </div>
   )
 }
 
-function TextAreaField({
-  label,
-  name,
+/**
+ * One screening question rendered as a Yes/No pair, laid out to mirror the
+ * printed form: numbered question on the left, Yes/No columns on the right.
+ */
+function ScreeningRow({
+  q,
   register,
-  error,
-  rows = 3,
-  placeholder,
+  answer,
+  errors,
 }: {
-  label: string
-  name: keyof FormData
-  register: ReturnType<typeof useForm<FormData>>["register"]
-  error?: string
-  rows?: number
-  placeholder?: string
+  q: ScreeningQuestion
+  register: UseFormRegister<FormData>
+  answer?: string
+  errors: Record<string, any>
 }) {
+  const detail = q.detail ?? q.detailDate
   return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-medium">{label}</span>
-      <textarea
-        rows={rows}
-        placeholder={placeholder}
-        className="w-full rounded-md border border-black/10 bg-background px-3 py-2 outline-none ring-offset-background focus:ring-2 focus:ring-emerald-500"
-        {...register(name)}
-      />
-      <FieldError message={error} />
-    </label>
+    <div className="border-b border-black/5 py-3 last:border-b-0">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+        <p className="text-sm">
+          <span className="font-medium">{q.number}.</span> {q.text}
+          {q.note && <span className="ml-1 text-xs font-medium text-emerald-700">({q.note})</span>}
+        </p>
+        <div className="flex shrink-0 gap-4">
+          {(["Yes", "No"] as const).map((opt) => (
+            <label key={opt} className="flex items-center gap-1.5 text-sm">
+              <input type="radio" value={opt} {...register(q.key as any)} />
+              <span>{opt}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      <FieldError message={errors[q.key]?.message} />
+      {detail && answer === "Yes" && (
+        <div className="mt-2 sm:pl-5">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">{detail.label}</span>
+            <input
+              type={q.detailDate ? "date" : "text"}
+              className="h-10 w-full rounded-md border border-black/10 bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              {...register(detail.key as any)}
+            />
+          </label>
+          <FieldError message={errors[detail.key]?.message} />
+        </div>
+      )}
+    </div>
   )
 }
 
-// ---------- Page
+/** Turn the base64 PDF from the API into a browser download. */
+function downloadBase64Pdf(base64: string, filename: string) {
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }))
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+const emptyRow = {
+  vaccine: "",
+  mfr: "",
+  dateAdmin: "",
+  lotNo: "",
+  expDate: "",
+  dosage: "",
+  injectionSite: "",
+  visEuaDate: "",
+  doseInSeries: "",
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 export default function VaccineConsentPage() {
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false)
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle")
   const [serverMsg, setServerMsg] = useState<string | null>(null)
+  const [receipt, setReceipt] = useState<{
+    recordId: string
+    filename: string
+    base64: string
+    name: string
+  } | null>(null)
 
   const {
     register,
     handleSubmit,
     reset,
     control,
-    formState: { errors },
     watch,
     setValue,
+    formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       vaccinesRequested: [],
-      doseNumber: "First dose",
-      anyPastReaction: "No",
-      allergiesLatex: "No",
-      allergiesMedicationFoodVaccine: "No",
-      historySevereAllergicReaction: "No",
-      neurologicalDisorderGBS: "No",
-      bleedingDisorderAnticoagulant: "No",
-      immunocompromised: "No",
-      pregnantOrBreastfeeding: "N/A",
-      currentlyIll: "No",
-      covidReceivedDose: "No",
-      covidAllergyPEGP80: "No",
-      covidOtherApplies: "No",
+      q18Conditions: [],
+      insuranceTypes: [],
+      authorizeBilling: false,
       consentAgree: false,
-      vaccineRows: [{ vaccine: "", manufacturer: "", adminDate: "", lotNo: "", expDate: "", dosage: "" }],
+      consentDate: new Date().toISOString().slice(0, 10),
+      vaccineRows: [],
     },
   })
 
   const { fields, append, remove } = useFieldArray({ control, name: "vaccineRows" })
 
-  const vaccineOptions = [
-    "COVID-19",
-    "Influenza (Flu)",
-    "Pneumococcal",
-    "Tdap",
-    "Shingles (Zoster)",
-    "Hepatitis A",
-    "Hepatitis B",
-    "HPV",
-    "MMR",
-    "Varicella",
-    "Meningococcal",
-    "Other",
-  ]
+  const values = watch()
+  const vaccinesSel = values.vaccinesRequested ?? []
+  const q18Sel = values.q18Conditions ?? []
+  const insuranceSel = values.insuranceTypes ?? []
 
-  // Checkbox handler for vaccinesRequested
-  const vaccinesSel = watch("vaccinesRequested") || []
+  const toggleArray = (name: "vaccinesRequested" | "q18Conditions" | "insuranceTypes") =>
+    (value: string, checked: boolean) => {
+      const current = new Set((values[name] as string[]) ?? [])
+      if (checked) current.add(value)
+      else current.delete(value)
+      setValue(name, Array.from(current), { shouldValidate: true })
+    }
 
   const onSubmit = async (data: FormData) => {
     setStatus("submitting")
@@ -300,10 +420,20 @@ export default function VaccineConsentPage() {
         body: JSON.stringify(data),
       })
       const json = await res.json()
-      if (!res.ok) throw new Error(json?.error || "Submission failed")
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Submission failed")
+
       setStatus("success")
-      setServerMsg("Submitted successfully. Thank you!")
+      setServerMsg(null)
+      if (json.pdf?.base64) {
+        setReceipt({
+          recordId: json.recordId,
+          filename: json.pdf.filename,
+          base64: json.pdf.base64,
+          name: `${data.firstName} ${data.lastName}`.trim(),
+        })
+      }
       reset()
+      window.scrollTo({ top: 0, behavior: "smooth" })
     } catch (e: any) {
       setStatus("error")
       setServerMsg(e?.message || "Something went wrong")
@@ -314,14 +444,53 @@ export default function VaccineConsentPage() {
     return <HippaDisclaimerModal onAccept={() => setDisclaimerAccepted(true)} />
   }
 
+  // ---- Success screen with the patient's copy of the PDF -------------------
   if (status === "success") {
     return (
-      <FormSuccess
-        title="Consent form submitted!"
-        message={serverMsg || "Thank you — we've received your vaccine consent form. Our team will be in touch shortly."}
-        onReset={() => { setStatus("idle"); setServerMsg(null) }}
-        resetLabel="Submit another form"
-      />
+      <main className="min-h-dvh bg-[#faf7f3]">
+        <div className="mx-auto max-w-2xl px-6 py-20">
+          <div className="rounded-2xl border bg-white p-8 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-3xl">
+              ✓
+            </div>
+            <h1 className="mt-5 text-2xl font-semibold">Consent form submitted</h1>
+            <p className="mt-2 text-muted-foreground">
+              Thank you{receipt?.name ? `, ${receipt.name}` : ""}. North Falmouth Pharmacy has received your
+              vaccine consent form and will be in touch about your appointment.
+            </p>
+            {receipt && (
+              <>
+                <p className="mt-4 text-sm text-muted-foreground">
+                  Reference number <span className="font-medium text-foreground">{receipt.recordId}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => downloadBase64Pdf(receipt.base64, receipt.filename)}
+                  className="mt-6 inline-flex h-12 items-center justify-center gap-2 rounded-full bg-emerald-700 px-7 text-white transition hover:bg-emerald-800"
+                >
+                  ⬇ Download your copy (PDF)
+                </button>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  This is the same document sent to the pharmacy. Please save it for your records — it is
+                  only available on this screen.
+                </p>
+              </>
+            )}
+            <div className="mt-8 border-t pt-6">
+              <button
+                type="button"
+                onClick={() => {
+                  setReceipt(null)
+                  setStatus("idle")
+                }}
+                className="text-sm font-medium text-emerald-700 hover:underline"
+              >
+                Submit another form
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
     )
   }
 
@@ -329,366 +498,235 @@ export default function VaccineConsentPage() {
     <main className="min-h-dvh bg-background">
       {/* Hero */}
       <section className="relative overflow-hidden bg-gradient-to-r from-emerald-600 to-teal-600 text-white">
-        <div className="mx-auto max-w-6xl px-6 py-14 md:py-20">
-          <h1 className="mt-6 text-3xl font-semibold md:text-5xl">Vaccine Administration Consent</h1>
+        <div className="mx-auto max-w-5xl px-6 py-14 md:py-20">
+          <h1 className="mt-6 text-3xl font-semibold md:text-5xl">Vaccine Administration Consent Form</h1>
           <p className="mt-4 max-w-2xl text-white/80">
-            Please complete the information below. Use dropdowns and quick choices to save time.
+            Please complete every section. You will be able to download a PDF copy once you submit.
           </p>
         </div>
       </section>
 
-      {/* Form */}
       <section className="bg-[#faf7f3]">
-        <div className="mx-auto max-w-6xl px-6 py-12 md:py-20">
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
-            {/* A. Patient Information */}
-            <Section title="A — Patient Information">
+        <div className="mx-auto max-w-5xl px-6 py-12 md:py-20">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            {/* ---- Section A ---------------------------------------------- */}
+            <Section title="Section A — Patient Information" subtitle="Please print clearly.">
               <div className="grid gap-4 md:grid-cols-2">
-                <InputField label="First name" name="firstName" register={register} error={errors.firstName?.message} />
-                <InputField label="Last name" name="lastName" register={register} error={errors.lastName?.message} />
+                <InputField label="First name" name="firstName" register={register} error={errors.firstName?.message} autoComplete="given-name" />
+                <InputField label="Last name" name="lastName" register={register} error={errors.lastName?.message} autoComplete="family-name" />
                 <InputField label="Date of birth" type="date" name="dob" register={register} error={errors.dob?.message} />
                 <InputField label="Age" name="age" register={register} error={errors.age?.message} />
-                <SelectField
-                  label="Sex at birth"
-                  name="sexAtBirth"
-                  register={register}
-                  options={["Female", "Male", "Intersex", "Prefer not to say"]}
-                  error={errors.sexAtBirth?.message}
-                />
-                <SelectField
-                  label="Gender identity"
-                  name="genderIdentity"
-                  register={register}
-                  options={["Female", "Male", "Non-binary", "Other", "Prefer not to say"]}
-                  error={errors.genderIdentity?.message}
-                />
-                <InputField label="Phone" name="phone" register={register} error={errors.phone?.message} />
-                <InputField label="Email" type="email" name="email" register={register} error={errors.email?.message} />
+                <SelectField label="Gender" name="gender" register={register} options={GENDER_OPTIONS} error={errors.gender?.message} />
+                <SelectField label="Race" name="race" register={register} options={RACE_OPTIONS} error={errors.race?.message} />
+                <SelectField label="Ethnicity" name="ethnicity" register={register} options={ETHNICITY_OPTIONS} error={errors.ethnicity?.message} />
+                <InputField label="Phone number" name="phone" type="tel" register={register} error={errors.phone?.message} autoComplete="tel" />
                 <div className="md:col-span-2">
-                  <InputField label="Home address" name="address" register={register} error={errors.address?.message} />
+                  <InputField label="Home address" name="address" register={register} error={errors.address?.message} autoComplete="street-address" />
                 </div>
-                <InputField label="City" name="city" register={register} error={errors.city?.message} />
-                <InputField label="State" name="state" register={register} error={errors.state?.message} />
-                <InputField label="ZIP" name="zip" register={register} error={errors.zip?.message} />
-
-                <SelectField
-                  label="Race"
-                  name="race"
-                  register={register}
-                  options={[
-                    "American Indian/Alaska Native",
-                    "Asian",
-                    "Black/African American",
-                    "Native Hawaiian/Other Pacific Islander",
-                    "White",
-                    "Other",
-                    "Prefer not to say",
-                  ]}
-                  error={errors.race?.message}
-                />
-                <SelectField
-                  label="Ethnicity"
-                  name="ethnicity"
-                  register={register}
-                  options={["Hispanic or Latino", "Not Hispanic or Latino", "Prefer not to say"]}
-                  error={errors.ethnicity?.message}
-                />
+                <InputField label="City" name="city" register={register} error={errors.city?.message} autoComplete="address-level2" />
+                <InputField label="State" name="state" register={register} error={errors.state?.message} autoComplete="address-level1" />
+                <InputField label="ZIP Code" name="zip" register={register} error={errors.zip?.message} autoComplete="postal-code" />
+                <InputField label="Email address" type="email" name="email" register={register} error={errors.email?.message} autoComplete="email" />
               </div>
-            </Section>
 
-            {/* B. Physician (optional) */}
-            <Section title="B — Primary Care Provider (Optional)">
-              <div className="grid gap-4 md:grid-cols-3">
-                <InputField label="Physician name" name="physicianName" register={register} error={errors.physicianName?.message} />
+              <div className="mt-6 grid gap-4 border-t pt-6 md:grid-cols-3">
+                <InputField label="Primary care physician name" name="physicianName" register={register} error={errors.physicianName?.message} />
                 <InputField label="Physician phone" name="physicianPhone" register={register} error={errors.physicianPhone?.message} />
                 <InputField label="Physician fax" name="physicianFax" register={register} error={errors.physicianFax?.message} />
               </div>
             </Section>
 
-            {/* C. Vaccination Requested */}
-            <Section title="C — Vaccination Requested">
-              <div className="space-y-4">
-                <div>
-                  <div className="mb-2 text-sm font-medium">Select vaccine(s):</div>
-                  <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-                    {vaccineOptions.map((v) => (
-                      <label key={v} className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          value={v}
-                          checked={vaccinesSel.includes(v)}
-                          onChange={(e) => {
-                            const checked = e.target.checked
-                            const current = new Set(vaccinesSel)
-                            if (checked) current.add(v)
-                            else current.delete(v)
-                            setValue("vaccinesRequested", Array.from(current), { shouldValidate: true })
-                          }}
-                          className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-                        />
-                        <span>{v}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {vaccinesSel.includes("Other") && (
+            {/* ---- Vaccines requested ------------------------------------- */}
+            <Section title="Vaccinations You Wish to Receive Today">
+              <CheckboxGroup
+                options={VACCINE_OPTIONS}
+                selected={vaccinesSel}
+                onToggle={toggleArray("vaccinesRequested")}
+                columns={2}
+              />
+              <FieldError message={errors.vaccinesRequested?.message as string | undefined} />
+              {vaccinesSel.includes("Other") && (
+                <div className="mt-4 max-w-md">
                   <InputField
-                    label="If 'Other', please specify"
+                    label="Other vaccine (please specify)"
                     name="otherVaccineText"
                     register={register}
                     error={errors.otherVaccineText?.message}
                   />
-                )}
-
-                <div className="grid gap-4 md:grid-cols-3">
-                  <SelectField
-                    label="Dose number"
-                    name="doseNumber"
-                    register={register}
-                    options={["First dose", "Second dose", "Booster", "Unknown"]}
-                    error={errors.doseNumber?.message}
-                  />
-                  <InputField
-                    label="Last dose date (if applicable)"
-                    type="date"
-                    name="lastDoseDate"
-                    register={register}
-                    error={errors.lastDoseDate?.message}
-                  />
-                  <SelectField
-                    label="Any past reaction to vaccines?"
-                    name="anyPastReaction"
-                    register={register}
-                    options={["Yes", "No"]}
-                    error={errors.anyPastReaction?.message}
-                  />
                 </div>
-
-                {watch("anyPastReaction") === "Yes" && (
-                  <TextAreaField
-                    label="Briefly describe the reaction"
-                    name="pastReactionDetails"
-                    register={register}
-                    error={errors.pastReactionDetails?.message}
-                  />
-                )}
-              </div>
-            </Section>
-
-            {/* D. Health Screening */}
-            <Section title="D — Health Screening">
-              <div className="grid gap-5">
-                <RadioRow
-                  label="1. Do you feel sick today?"
-                  name="currentlyIll"
-                  register={register}
-                  options={["Yes", "No"]}
-                  error={errors.currentlyIll?.message}
-                />
-                <RadioRow
-                  label="2. Any allergies to latex?"
-                  name="allergiesLatex"
-                  register={register}
-                  options={["Yes", "No"]}
-                  error={errors.allergiesLatex?.message}
-                />
-                <RadioRow
-                  label="3. Allergies to medications, food, or vaccines?"
-                  name="allergiesMedicationFoodVaccine"
-                  register={register}
-                  options={["Yes", "No"]}
-                  error={errors.allergiesMedicationFoodVaccine?.message}
-                />
-                <RadioRow
-                  label="4. History of severe allergic reaction (e.g., anaphylaxis)?"
-                  name="historySevereAllergicReaction"
-                  register={register}
-                  options={["Yes", "No"]}
-                  error={errors.historySevereAllergicReaction?.message}
-                />
-                <RadioRow
-                  label="5. Seizure disorder, GBS, or other neurological problem?"
-                  name="neurologicalDisorderGBS"
-                  register={register}
-                  options={["Yes", "No"]}
-                  error={errors.neurologicalDisorderGBS?.message}
-                />
-                <RadioRow
-                  label="6. Bleeding disorder or taking blood thinners?"
-                  name="bleedingDisorderAnticoagulant"
-                  register={register}
-                  options={["Yes", "No"]}
-                  error={errors.bleedingDisorderAnticoagulant?.message}
-                />
-                <RadioRow
-                  label="7. Condition that weakens the immune system?"
-                  name="immunocompromised"
-                  register={register}
-                  options={["Yes", "No"]}
-                  error={errors.immunocompromised?.message}
-                />
-                <RadioRow
-                  label="8. For women: Pregnant or breastfeeding?"
-                  name="pregnantOrBreastfeeding"
-                  register={register}
-                  options={["Yes", "No", "N/A"]}
-                  error={errors.pregnantOrBreastfeeding?.message}
-                />
-              </div>
-            </Section>
-
-            {/* E. COVID-19 Specific */}
-            <Section title="E — COVID-19 Specific">
-              <div className="grid gap-4 md:grid-cols-3">
-                <SelectField
-                  label="Have you ever received a dose of COVID-19 vaccine?"
-                  name="covidReceivedDose"
-                  register={register}
-                  options={["Yes", "No"]}
-                  error={errors.covidReceivedDose?.message}
-                />
-                <SelectField
-                  label="Allergy to a component (e.g., PEG or Polysorbate)?"
-                  name="covidAllergyPEGP80"
-                  register={register}
-                  options={["Yes", "No"]}
-                  error={errors.covidAllergyPEGP80?.message}
-                />
-                <SelectField
-                  label="Other COVID-19 considerations apply?"
-                  name="covidOtherApplies"
-                  register={register}
-                  options={["Yes", "No"]}
-                  error={errors.covidOtherApplies?.message}
-                />
-              </div>
-              {watch("covidOtherApplies") === "Yes" && (
-                <TextAreaField
-                  label="Describe any applicable conditions (pregnancy, immunocompromise, monoclonal antibodies, etc.)"
-                  name="covidOtherDetails"
-                  register={register}
-                  error={errors.covidOtherDetails?.message}
-                />
               )}
             </Section>
 
-            {/* F. Insurance */}
-            <Section title="F — Insurance & Billing">
-              <div className="grid gap-4 md:grid-cols-3">
-                <SelectField
-                  label="Plan type"
-                  name="insurancePlanType"
-                  register={register}
-                  options={["Medical", "Pharmacy", "Medicare", "Medicaid", "Self-pay", "Unknown"]}
-                  error={errors.insurancePlanType?.message}
-                />
-                <InputField label="Member ID" name="insuranceMemberId" register={register} error={errors.insuranceMemberId?.message} />
-                <InputField label="Group (GRP)" name="insuranceGroup" register={register} error={errors.insuranceGroup?.message} />
-                <InputField label="BIN" name="insuranceBIN" register={register} error={errors.insuranceBIN?.message} />
-                <InputField label="PCN" name="insurancePCN" register={register} error={errors.insurancePCN?.message} />
-                <InputField label="Medicare Number" name="medicareNumber" register={register} error={errors.medicareNumber?.message} />
-              </div>
-              <label className="mt-3 flex items-center gap-2 text-sm">
-                <input type="checkbox" {...register("authorizeBilling")} />
-                <span>I authorize the pharmacy to bill my insurance and receive payment.</span>
-              </label>
-              <FieldError message={errors.authorizeBilling?.message as string | undefined} />
-            </Section>
-
-            {/* G. Vaccine Administration (Clinic Use) */}
-            <Section title="G — Vaccine Administration (Clinic Use)">
-              <div className="space-y-3">
-                {fields.map((f, idx) => (
-                  <div key={f.id} className="grid gap-3 md:grid-cols-6">
-                    <input
-                      className="h-10 rounded-md border border-black/10 px-2"
-                      placeholder="Vaccine"
-                      {...register(`vaccineRows.${idx}.vaccine`)}
-                    />
-                    <input
-                      className="h-10 rounded-md border border-black/10 px-2"
-                      placeholder="Manufacturer"
-                      {...register(`vaccineRows.${idx}.manufacturer`)}
-                    />
-                    <input
-                      type="date"
-                      className="h-10 rounded-md border border-black/10 px-2"
-                      placeholder="Admin date"
-                      {...register(`vaccineRows.${idx}.adminDate`)}
-                    />
-                    <input
-                      className="h-10 rounded-md border border-black/10 px-2"
-                      placeholder="Lot no."
-                      {...register(`vaccineRows.${idx}.lotNo`)}
-                    />
-                    <input
-                      type="date"
-                      className="h-10 rounded-md border border-black/10 px-2"
-                      placeholder="Exp. date"
-                      {...register(`vaccineRows.${idx}.expDate`)}
-                    />
-                    <div className="flex gap-2">
-                      <input
-                        className="h-10 w-full rounded-md border border-black/10 px-2"
-                        placeholder="Dosage"
-                        {...register(`vaccineRows.${idx}.dosage`)}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => remove(idx)}
-                        className="inline-flex items-center justify-center rounded-md border px-3 text-sm hover:bg-muted"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
+            {/* ---- Section B --------------------------------------------- */}
+            <Section
+              title="Section B — General Vaccine Screening"
+              subtitle="These questions help us determine your eligibility for vaccination today. Please answer all of them."
+            >
+              <div className="divide-y divide-black/5">
+                {GENERAL_SCREENING.map((q) => (
+                  <ScreeningRow key={q.key} q={q} register={register} answer={(values as any)[q.key]} errors={errors} />
                 ))}
-                <button
-                  type="button"
-                  onClick={() => append({ vaccine: "", manufacturer: "", adminDate: "", lotNo: "", expDate: "", dosage: "" })}
-                  className="inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm hover:bg-muted"
-                >
-                  + Add row
-                </button>
               </div>
             </Section>
 
-            {/* H. Consent & Signature */}
-            <Section title="H — Informed Consent & Signature">
-              <p className="mb-3 text-sm text-muted-foreground">
-                I have read (or had explained to me) the Vaccine Information Statements and understand the benefits and risks of the
-                vaccination(s). I authorize the administration and consent to the disclosure of my health information to my healthcare
-                providers, health plans, and public health authorities as required for care, billing, and reporting purposes.
+            <Section
+              title="Section B — Live Vaccine Screening"
+              subtitle="These apply to live vaccines and specific products. Please answer all of them — if one does not apply to you, answer No."
+            >
+              <div className="divide-y divide-black/5">
+                {LIVE_VACCINE_SCREENING.map((q) => (
+                  <ScreeningRow key={q.key} q={q} register={register} answer={(values as any)[q.key]} errors={errors} />
+                ))}
+              </div>
+            </Section>
+
+            {/* ---- Section C --------------------------------------------- */}
+            <Section title="Section C — COVID-19 Vaccine Screening">
+              <div className="divide-y divide-black/5">
+                {COVID_SCREENING.map((q) => (
+                  <ScreeningRow key={q.key} q={q} register={register} answer={(values as any)[q.key]} errors={errors} />
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">{Q17_FOOTNOTE}</p>
+
+              <div className="mt-6 border-t pt-5">
+                <p className="mb-3 text-sm font-medium">18. Check all that apply to you:</p>
+                <CheckboxGroup
+                  options={Q18_CONDITIONS}
+                  selected={q18Sel}
+                  onToggle={toggleArray("q18Conditions")}
+                  columns={2}
+                />
+              </div>
+            </Section>
+
+            {/* ---- Section D — consent ----------------------------------- */}
+            <Section title="Section D — Consent and Release">
+              <p className="text-sm text-muted-foreground">
+                I understand the benefits and risks of the vaccination(s) as described in the Vaccine
+                Information Statement (VIS), a copy of which was provided with this Consent and Release. I
+                request the vaccine(s) be given to me or to the person named below, a minor for whom I
+                represent that I am authorized to sign this Consent and Release.
               </p>
-              <div className="grid gap-4 md:grid-cols-2">
-                <InputField label="Typed signature (full name)" name="consentName" register={register} error={errors.consentName?.message} />
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <InputField
+                  label="Signature of person to receive vaccine (type full name)"
+                  name="consentName"
+                  register={register}
+                  error={errors.consentName?.message}
+                />
                 <InputField label="Date" type="date" name="consentDate" register={register} error={errors.consentDate?.message} />
               </div>
-              <label className="mt-2 flex items-center gap-2 text-sm">
-                <input type="checkbox" {...register("consentAgree")} />
-                <span>I have read and agree to the consent statement.</span>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Or parent/guardian, if the recipient is younger than 18 years.
+              </p>
+              <label className="mt-4 flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-0.5" {...register("consentAgree")} />
+                <span>I have read and agree to the consent statement above.</span>
               </label>
               <FieldError message={errors.consentAgree?.message as string | undefined} />
             </Section>
 
-            {/* Submit */}
-            <div className="flex items-center gap-3">
+            {/* ---- Insurance --------------------------------------------- */}
+            <Section title="Insurance Information and Authorization">
+              <p className="mb-3 text-sm font-medium">Coverage type</p>
+              <CheckboxGroup
+                options={INSURANCE_TYPE_OPTIONS}
+                selected={insuranceSel}
+                onToggle={toggleArray("insuranceTypes")}
+                columns={3}
+              />
+
+              <div className="mt-6 grid gap-4 md:grid-cols-3">
+                <InputField label="Insurance plan name" name="insurancePlanName" register={register} error={errors.insurancePlanName?.message} />
+                <InputField label="Member/recipient ID" name="memberId" register={register} error={errors.memberId?.message} />
+                <InputField label="Group No." name="groupNo" register={register} error={errors.groupNo?.message} />
+                <InputField label="RX BIN" name="rxBin" register={register} placeholder="NA" error={errors.rxBin?.message} />
+                <InputField label="RX PCN" name="rxPcn" register={register} placeholder="NA" error={errors.rxPcn?.message} />
+                <InputField
+                  label="Medicare Card No. (red, white and blue card)"
+                  name="medicareCardNo"
+                  register={register}
+                  error={errors.medicareCardNo?.message}
+                />
+                <InputField label="Medicare ID" name="medicareId" register={register} error={errors.medicareId?.message} />
+                <InputField label="Social Security Number" name="ssn" register={register} error={errors.ssn?.message} />
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Only the last four digits of your SSN are stored. The full number appears solely on the
+                consent PDF sent to the pharmacy.
+              </p>
+
+              <label className="mt-4 flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-0.5" {...register("authorizeBilling")} />
+                <span>
+                  I hereby authorize the pharmacy to bill my insurance on my behalf for the immunizations and
+                  receive payment.
+                </span>
+              </label>
+            </Section>
+
+            {/* ---- Clinic use -------------------------------------------- */}
+            <Section
+              title="Vaccine Administration (Pharmacy Use Only)"
+              subtitle="Leave blank — the immunizer completes this at the time of your appointment."
+            >
+              <div className="space-y-4">
+                {fields.map((f, idx) => (
+                  <div key={f.id} className="rounded-lg border border-black/10 p-3">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      {ADMIN_TABLE_COLUMNS.map((col) => (
+                        <label key={col.key} className="block">
+                          <span className="mb-1 block text-xs font-medium text-muted-foreground">{col.label}</span>
+                          <input
+                            type={col.key.toLowerCase().includes("date") ? "date" : "text"}
+                            className="h-10 w-full rounded-md border border-black/10 px-2 text-sm"
+                            {...register(`vaccineRows.${idx}.${col.key}` as any)}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => remove(idx)}
+                      className="mt-3 rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+                    >
+                      Remove row
+                    </button>
+                  </div>
+                ))}
+                <div className="flex flex-wrap items-end gap-4">
+                  <button
+                    type="button"
+                    onClick={() => append(emptyRow)}
+                    className="inline-flex items-center justify-center rounded-md border px-4 py-2 text-sm hover:bg-muted"
+                  >
+                    + Add administration row
+                  </button>
+                  <div className="min-w-[240px] flex-1">
+                    <InputField
+                      label="Immunizer name (print)"
+                      name="immunizerName"
+                      register={register}
+                      error={errors.immunizerName?.message}
+                    />
+                  </div>
+                </div>
+              </div>
+            </Section>
+
+            {/* ---- Submit ------------------------------------------------- */}
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 type="submit"
                 disabled={status === "submitting"}
                 className="inline-flex h-12 items-center justify-center rounded-full bg-orange-500 px-7 text-white transition hover:bg-orange-600 disabled:opacity-60"
               >
-                {status === "submitting" ? "Submitting..." : "Submit"}
+                {status === "submitting" ? "Submitting..." : "Submit consent form"}
               </button>
-              {status !== "idle" && (
-                <span
-                  className={`text-sm ${
-                    status === "success" ? "text-green-700" : status === "error" ? "text-red-700" : "text-muted-foreground"
-                  }`}
-                >
-                  {serverMsg}
-                </span>
+              {status === "error" && serverMsg && <span className="text-sm text-red-700">{serverMsg}</span>}
+              {Object.keys(errors).length > 0 && (
+                <span className="text-sm text-red-700">Please correct the highlighted fields above.</span>
               )}
             </div>
           </form>
