@@ -117,6 +117,7 @@ export async function createPost(opts: {
   dueAt?: string
   schedulingType?: "automatic" | "notification"
   instagramType?: "post" | "story" | "reel"
+  facebookType?: "post" | "story" | "reel"
   dryRun?: boolean
   token?: string
 }): Promise<{ ok: boolean; id?: string; error?: string; input?: any }> {
@@ -140,6 +141,11 @@ export async function createPost(opts: {
   // Stories don't go to the feed. Only sent for Instagram channels.
   if (opts.instagramType) {
     input.metadata = { instagram: { type: opts.instagramType, shouldShareToFeed: opts.instagramType !== "story" } }
+  }
+  // Facebook likewise rejects a post without a type ("post" | "story" | "reel").
+  // Only sent for Facebook channels; a normal page post is "post".
+  else if (opts.facebookType) {
+    input.metadata = { facebook: { type: opts.facebookType } }
   }
 
   // Dry run: return the exact input we would send, without calling Buffer.

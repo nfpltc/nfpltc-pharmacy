@@ -268,7 +268,7 @@ export default function SocialEditor() {
     try {
       const res = await fetch("/api/admin/buffer/post", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channelId: selected[platform], text: texts[platform], imageUrl: imageUrl || undefined, mode: "shareNow", instagramType: platform === "instagram" ? igType : undefined }),
+        body: JSON.stringify({ channelId: selected[platform], text: texts[platform], imageUrl: imageUrl || undefined, mode: "shareNow", instagramType: platform === "instagram" ? igType : undefined, facebookType: platform === "facebook" ? "post" : undefined }),
       })
       const d = await res.json()
       setMsg(res.ok
