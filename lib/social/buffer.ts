@@ -48,7 +48,7 @@ export async function bufferGql<T = any>(
   }
 }
 
-export type Platform = "linkedin" | "x" | "instagram" | "other"
+export type Platform = "linkedin" | "x" | "instagram" | "facebook" | "other"
 
 // Buffer returns "linkedin" | "instagram" | "twitter"; normalize with startsWith.
 export function normalizeService(s: string): Platform {
@@ -56,6 +56,7 @@ export function normalizeService(s: string): Platform {
   if (x.startsWith("linkedin")) return "linkedin"
   if (x.startsWith("twitter") || x === "x") return "x"
   if (x.startsWith("instagram")) return "instagram"
+  if (x.startsWith("facebook")) return "facebook"
   return "other"
 }
 

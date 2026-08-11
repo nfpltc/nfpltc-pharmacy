@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState } from "react"
 import {
-  Linkedin, Twitter, Instagram, Sparkles, Wand2, Image as ImageIcon, Send,
+  Linkedin, Twitter, Instagram, Facebook, Sparkles, Wand2, Image as ImageIcon, Send,
   Clock, CalendarClock, Loader2, Trash2, RefreshCw, Save, Share2, AlertCircle,
   CheckCircle2, Play, FolderOpen, Upload, ZoomIn, X,
 } from "lucide-react"
 
-type Platform = "linkedin" | "x" | "instagram"
+type Platform = "linkedin" | "x" | "instagram" | "facebook"
 type Channel = { id: string; name: string; service: string; platform: string; avatar?: string }
 type QueueItem = {
   id: string; text: string; platform: string; channel_id: string; channel_name?: string
@@ -19,6 +19,7 @@ const PLATFORMS: { id: Platform; label: string; icon: any; limit: number }[] = [
   { id: "linkedin", label: "LinkedIn", icon: Linkedin, limit: 3000 },
   { id: "x", label: "X", icon: Twitter, limit: 270 },
   { id: "instagram", label: "Instagram", icon: Instagram, limit: 2000 },
+  { id: "facebook", label: "Facebook", icon: Facebook, limit: 63206 },
 ]
 
 const REWRITES: { label: string; instr: string }[] = [
@@ -56,7 +57,7 @@ export default function SocialEditor() {
   const [topic, setTopic] = useState("")
   const [tone, setTone] = useState(TONES[0])
   const [composing, setComposing] = useState(false)
-  const [texts, setTexts] = useState<Record<Platform, string>>({ linkedin: "", x: "", instagram: "" })
+  const [texts, setTexts] = useState<Record<Platform, string>>({ linkedin: "", x: "", instagram: "", facebook: "" })
 
   const [models, setModels] = useState<any[]>([])
   const [model, setModel] = useState("")
@@ -78,8 +79,8 @@ export default function SocialEditor() {
 
   const [channels, setChannels] = useState<Channel[]>([])
   const [channelsError, setChannelsError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<Record<Platform, string>>({ linkedin: "", x: "", instagram: "" })
-  const [scheduleAt, setScheduleAt] = useState<Record<Platform, string>>({ linkedin: "", x: "", instagram: "" })
+  const [selected, setSelected] = useState<Record<Platform, string>>({ linkedin: "", x: "", instagram: "", facebook: "" })
+  const [scheduleAt, setScheduleAt] = useState<Record<Platform, string>>({ linkedin: "", x: "", instagram: "", facebook: "" })
   const [igType, setIgType] = useState<"post" | "story" | "reel">("post")
   const [busy, setBusy] = useState<Record<string, boolean>>({})
 
@@ -146,7 +147,7 @@ export default function SocialEditor() {
       })
       const d = await res.json()
       if (res.ok) {
-        setTexts({ linkedin: d.linkedin, x: d.x, instagram: d.instagram })
+        setTexts({ linkedin: d.linkedin, x: d.x, instagram: d.instagram, facebook: d.facebook ?? d.linkedin })
         setImageQuery(d.image_query || ""); setImagePrompt(d.image_prompt || "")
         setMsg({ type: "success", text: "Drafted 3 platform posts. Generate an image, then post or queue." })
       } else setMsg({ type: "error", text: d.error || "Compose failed." })
@@ -231,7 +232,7 @@ export default function SocialEditor() {
       })
       const d = await res.json()
       if (!res.ok) { setMsg({ type: "error", text: d.error || "Could not read the image." }); return }
-      setTexts({ linkedin: d.linkedin, x: d.x, instagram: d.instagram })
+      setTexts({ linkedin: d.linkedin, x: d.x, instagram: d.instagram, facebook: d.facebook ?? d.linkedin })
       setMsg({ type: "success", text: "Wrote 3 posts from your image — review and post." })
     } catch { setMsg({ type: "error", text: "Could not generate from image." }) }
     finally { setCaptioning(false) }
@@ -330,7 +331,7 @@ export default function SocialEditor() {
     setMsg({ type: "success", text: "Draft saved." })
   }
   function loadDraft(d: any) {
-    setTopic(d.topic || ""); setTexts(d.texts || { linkedin: "", x: "", instagram: "" })
+    setTopic(d.topic || ""); setTexts({ linkedin: "", x: "", instagram: "", facebook: "", ...(d.texts || {}) })
     setImageUrl(d.imageUrl || ""); setImageQuery(d.imageQuery || ""); setImagePrompt(d.imagePrompt || "")
     setImageCredit(null)
   }
@@ -488,7 +489,7 @@ export default function SocialEditor() {
       )}
 
       {/* Platform cards */}
-      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {PLATFORMS.map((p) => (
           <PlatformCard
             key={p.id} p={p} text={texts[p.id]} onText={(v) => setTexts((t) => ({ ...t, [p.id]: v }))}
