@@ -7,9 +7,10 @@
 // button, and the admin dashboard download. One builder means the patient and
 // the pharmacy can never end up looking at differently-shaped documents.
 
-import { PDFDocument, PDFFont, StandardFonts, rgb } from "pdf-lib"
+import { PDFDocument, PDFFont, StandardFonts, rgb, type RGB } from "pdf-lib"
 import { readFile } from "fs/promises"
 import path from "path"
+import sharp from "sharp"
 import {
   ADMIN_TABLE_COLUMNS,
   ADMIN_TABLE_ROWS,
@@ -25,8 +26,17 @@ import {
 const PAGE_W = 612
 const PAGE_H = 900
 const MARGIN = 40
-const GREEN = rgb(0.07, 0.45, 0.33)
 const HEADING = "Vaccine Administration Consent Form"
+
+// Brand palette — matches the site's hero gradient (emerald-600 -> teal-600)
+// and its emerald-700 accent text/links, so the PDF reads as the same brand.
+const PRIMARY = rgb(0x04 / 255, 0x78 / 255, 0x57 / 255) // emerald-700 #047857
+const ACCENT = rgb(0x0d / 255, 0x94 / 255, 0x88 / 255) // teal-600    #0d9488
+const TINT = rgb(0.91, 0.97, 0.95) // soft green card background
+const INK = rgb(0.2, 0.2, 0.2)
+const MUTED = rgb(0.46, 0.46, 0.46)
+const RULE = rgb(0.83, 0.88, 0.86)
+const WHITE = rgb(1, 1, 1)
 
 function safe(v: any): string {
   if (v === null || v === undefined) return ""
@@ -45,7 +55,7 @@ function toWinAnsi(text: string): string {
     .replace(/[“”]/g, '"')
     .replace(/[–—]/g, "-")
     .replace(/…/g, "...")
-    .replace(/ /g, " ")
+    .replace(/ /g, " ")
     .replace(/[^\x20-\x7E¡-ÿ™€]/g, "")
 }
 
@@ -58,10 +68,19 @@ export function maskSsn(ssn: any): string {
 }
 
 async function embedLogo(pdf: PDFDocument) {
-  // The site logo is an SVG, which pdf-lib cannot embed. Prefer a raster logo if
-  // one is present, else fall back to a text wordmark. Each path is written as a
+  // Prefer the real vector logo, rasterized crisp via sharp (pdf-lib cannot
+  // embed SVG directly). Fall back to a raster logo file if one is ever added,
+  // then to a text wordmark if no logo can be loaded at all. Each path is a
   // literal (not a loop variable) so Next's file tracer includes exactly these
   // files instead of globbing all of /public into the function bundle.
+  try {
+    const svg = await readFile(path.join(process.cwd(), "public", "logo.svg"))
+    // density=200 gives a crisp result at the ~2.5in display width below
+    // without producing an oversized embed.
+    const png = await sharp(svg, { density: 200 }).png().toBuffer()
+    const img = await pdf.embedPng(png)
+    return { node: img, width: img.width, height: img.height }
+  } catch { /* try next candidate */ }
   try {
     const img = await pdf.embedPng(await readFile(path.join(process.cwd(), "public", "logo.png")))
     return { node: img, width: img.width, height: img.height }
@@ -92,53 +111,69 @@ export async function createConsentPdf(
   const italic = await pdf.embedFont(StandardFonts.HelveticaOblique)
 
   let page = pdf.addPage([PAGE_W, PAGE_H])
-  let y = PAGE_H - 20
+  let y = PAGE_H - 24
 
-  // ---- Header: logo (or wordmark) + green title bar -----------------------
+  // Paints a filled rectangle, then masks its four corners with page-background
+  // circles to fake a rounded-corner card — pdf-lib has no native corner radius.
+  // Only safe when called before anything else is drawn under the corners,
+  // which is true everywhere this is used (headers on a fresh page position).
+  const roundedRect = (x: number, atY: number, w: number, h: number, r: number, color: RGB, bg: RGB = WHITE) => {
+    page.drawRectangle({ x, y: atY, width: w, height: h, color })
+    for (const [cx, cy] of [
+      [x + r, atY + r], [x + w - r, atY + r], [x + r, atY + h - r], [x + w - r, atY + h - r],
+    ] as const) {
+      page.drawEllipse({ x: cx, y: cy, xScale: r, yScale: r, color: bg })
+    }
+  }
+
+  // Same idea, but the fill is a horizontal gradient between two brand colors
+  // (approximated with thin bands) instead of one flat color.
+  const roundedGradientRect = (x: number, atY: number, w: number, h: number, r: number, from: RGB, to: RGB) => {
+    const bands = 32
+    const bw = w / bands
+    for (let i = 0; i < bands; i++) {
+      const t = i / (bands - 1)
+      page.drawRectangle({
+        x: x + i * bw, y: atY, width: bw + 0.75, height: h,
+        color: rgb(from.red + (to.red - from.red) * t, from.green + (to.green - from.green) * t, from.blue + (to.blue - from.blue) * t),
+      })
+    }
+    for (const [cx, cy] of [
+      [x + r, atY + r], [x + w - r, atY + r], [x + r, atY + h - r], [x + w - r, atY + h - r],
+    ] as const) {
+      page.drawEllipse({ x: cx, y: cy, xScale: r, yScale: r, color: WHITE })
+    }
+  }
+
+  // ---- Header: logo (or wordmark) + gradient title card --------------------
   const logo = await embedLogo(pdf)
   if (logo) {
-    const targetW = 170
+    const targetW = 190
     const targetH = logo.height * (targetW / logo.width)
     page.drawImage(logo.node, { x: MARGIN, y: y - targetH, width: targetW, height: targetH })
     y -= targetH
   } else {
-    page.drawText("North Falmouth Pharmacy", {
-      x: MARGIN,
-      y: y - 16,
-      size: 16,
-      font: bold,
-      color: GREEN,
-    })
-    y -= 24
+    page.drawText("North Falmouth Pharmacy", { x: MARGIN, y: y - 18, size: 18, font: bold, color: PRIMARY })
+    y -= 26
   }
 
+  const TITLE_BAR_H = 40
   const drawTitleBar = (atY: number) => {
-    page.drawRectangle({ x: 0, y: atY, width: PAGE_W, height: 36, color: GREEN })
-    const w = bold.widthOfTextAtSize(HEADING, 13)
-    page.drawText(HEADING, {
-      x: (PAGE_W - w) / 2,
-      y: atY + (36 - 13) / 2 + 3,
-      size: 13,
-      font: bold,
-      color: rgb(1, 1, 1),
-    })
+    roundedGradientRect(MARGIN, atY, PAGE_W - MARGIN * 2, TITLE_BAR_H, 8, PRIMARY, ACCENT)
+    const size = 14
+    const w = bold.widthOfTextAtSize(HEADING, size)
+    page.drawText(HEADING, { x: (PAGE_W - w) / 2, y: atY + (TITLE_BAR_H - size) / 2 + 3, size, font: bold, color: WHITE })
   }
 
-  const barY = y - 14 - 36
+  const barY = y - 18 - TITLE_BAR_H
   drawTitleBar(barY)
   y = barY - 28
 
   const newPage = () => {
-    page.drawText("- Continued on next page -", {
-      x: 230,
-      y: 40,
-      size: 9,
-      font,
-      color: rgb(0.5, 0.5, 0.5),
-    })
+    page.drawText("- Continued on next page -", { x: 230, y: 62, size: 9, font: italic, color: MUTED })
     page = pdf.addPage([PAGE_W, PAGE_H])
-    drawTitleBar(PAGE_H - 60)
-    y = PAGE_H - 60 - 28
+    drawTitleBar(PAGE_H - 70)
+    y = PAGE_H - 70 - 28
   }
 
   /** Word-wrap to a pixel width, hard-breaking words that are too long alone. */
@@ -170,11 +205,14 @@ export async function createConsentPdf(
   }
 
   const block = (title: string) => {
-    y -= 25
-    if (y < 90) newPage()
-    page.drawRectangle({ x: MARGIN, y: y - 5, width: PAGE_W - MARGIN * 2, height: 22, color: rgb(0.9, 0.97, 0.94) })
-    page.drawText(toWinAnsi(title), { x: MARGIN + 10, y, size: 12, font: bold, color: GREEN })
-    y -= 10
+    y -= 26
+    if (y < 92) newPage()
+    const h = 23
+    roundedRect(MARGIN, y - 6, PAGE_W - MARGIN * 2, h, 5, TINT)
+    // Thin accent tab on the left edge of the card for a bit of visual polish.
+    page.drawRectangle({ x: MARGIN, y: y - 6, width: 3.5, height: h, color: ACCENT })
+    page.drawText(toWinAnsi(title), { x: MARGIN + 12, y, size: 12, font: bold, color: PRIMARY })
+    y -= 11
   }
 
   const LABEL_X = MARGIN + 10
@@ -185,38 +223,40 @@ export async function createConsentPdf(
     if (blank) {
       if (y - 16 < 60) newPage()
       y -= 16
-      page.drawText(toWinAnsi(`${label}:`), { x: LABEL_X, y, size: 10, font: bold })
-      page.drawLine({ start: { x: VALUE_X, y: y - 2 }, end: { x: PAGE_W - MARGIN, y: y - 2 }, thickness: 0.5, color: rgb(0.78, 0.78, 0.78) })
+      page.drawText(toWinAnsi(`${label}:`), { x: LABEL_X, y, size: 10, font: bold, color: INK })
+      page.drawLine({ start: { x: VALUE_X, y: y - 2 }, end: { x: PAGE_W - MARGIN, y: y - 2 }, thickness: 0.75, color: RULE })
       return
     }
     const text = value === null || value === undefined || value === "" ? "-" : String(value)
     const wrapped = wrap(text, font, 10, VALUE_W)
     if (y - (14 + (wrapped.length - 1) * 13) < 60) newPage()
     y -= 14
-    page.drawText(toWinAnsi(`${label}:`), { x: LABEL_X, y, size: 10, font: bold })
-    page.drawText(wrapped[0], { x: VALUE_X, y, size: 10, font })
+    page.drawText(toWinAnsi(`${label}:`), { x: LABEL_X, y, size: 10, font: bold, color: INK })
+    page.drawText(wrapped[0], { x: VALUE_X, y, size: 10, font, color: INK })
     for (let i = 1; i < wrapped.length; i++) {
       y -= 13
-      page.drawText(wrapped[i], { x: VALUE_X, y, size: 10, font })
+      page.drawText(wrapped[i], { x: VALUE_X, y, size: 10, font, color: INK })
     }
   }
 
-  // A small empty checkbox for the printable blank form.
+  // A small checkbox for the printable blank form — rounded, brand-tinted, so
+  // it reads as a deliberate form control rather than a plain HTML default.
   const checkbox = (x: number, atY: number) => {
-    page.drawRectangle({ x, y: atY - 1, width: 9, height: 9, borderColor: rgb(0.45, 0.45, 0.45), borderWidth: 0.8, color: rgb(1, 1, 1) })
+    roundedRect(x, atY - 1, 10, 10, 2, rgb(0.96, 0.99, 0.98), rgb(0.96, 0.99, 0.98))
+    page.drawRectangle({ x: x + 0.5, y: atY - 0.5, width: 9, height: 9, borderColor: ACCENT, borderWidth: 1, color: undefined })
   }
 
   // A checkbox list of options — used in blank mode for the multi-select fields.
   const optionList = (items: readonly string[]) => {
     for (const item of items) {
-      const wrapped = wrap(item, font, 9.5, PAGE_W - MARGIN * 2 - 30)
+      const wrapped = wrap(item, font, 9.5, PAGE_W - MARGIN * 2 - 32)
       if (y - wrapped.length * 12 < 60) newPage()
       y -= 14
-      checkbox(LABEL_X, y)
-      page.drawText(toWinAnsi(wrapped[0]), { x: LABEL_X + 16, y, size: 9.5, font })
+      checkbox(LABEL_X, y - 1)
+      page.drawText(toWinAnsi(wrapped[0]), { x: LABEL_X + 17, y, size: 9.5, font, color: INK })
       for (let i = 1; i < wrapped.length; i++) {
         y -= 12
-        page.drawText(toWinAnsi(wrapped[i]), { x: LABEL_X + 16, y, size: 9.5, font })
+        page.drawText(toWinAnsi(wrapped[i]), { x: LABEL_X + 17, y, size: 9.5, font, color: INK })
       }
     }
   }
@@ -232,22 +272,22 @@ export async function createConsentPdf(
       const wrapped = wrap(label, font, 9.5, PAGE_W - MARGIN * 2 - 96)
       if (y - (wrapped.length * 12 + 18) < 60) newPage()
       y -= 14
-      page.drawText(wrapped[0], { x: LABEL_X, y, size: 9.5, font })
-      checkbox(PAGE_W - MARGIN - 84, y)
-      page.drawText("Yes", { x: PAGE_W - MARGIN - 72, y, size: 9, font })
-      checkbox(PAGE_W - MARGIN - 40, y)
-      page.drawText("No", { x: PAGE_W - MARGIN - 28, y, size: 9, font })
+      page.drawText(wrapped[0], { x: LABEL_X, y, size: 9.5, font, color: INK })
+      checkbox(PAGE_W - MARGIN - 84, y - 1)
+      page.drawText("Yes", { x: PAGE_W - MARGIN - 71, y, size: 9, font, color: INK })
+      checkbox(PAGE_W - MARGIN - 40, y - 1)
+      page.drawText("No", { x: PAGE_W - MARGIN - 27, y, size: 9, font, color: INK })
       for (let i = 1; i < wrapped.length; i++) {
         y -= 12
-        page.drawText(wrapped[i], { x: LABEL_X, y, size: 9.5, font })
+        page.drawText(wrapped[i], { x: LABEL_X, y, size: 9.5, font, color: INK })
       }
       if (q.detail || q.detailDate) {
         if (y - 13 < 60) newPage()
         y -= 13
         const flabel = q.detailDate ? "If yes, date of last dose:" : "If yes, please list:"
-        page.drawText(flabel, { x: LABEL_X + 14, y, size: 8.5, font: italic, color: rgb(0.4, 0.4, 0.4) })
+        page.drawText(flabel, { x: LABEL_X + 14, y, size: 8.5, font: italic, color: MUTED })
         const fx = LABEL_X + 14 + italic.widthOfTextAtSize(flabel, 8.5) + 6
-        page.drawLine({ start: { x: fx, y: y - 2 }, end: { x: PAGE_W - MARGIN, y: y - 2 }, thickness: 0.5, color: rgb(0.82, 0.82, 0.82) })
+        page.drawLine({ start: { x: fx, y: y - 2 }, end: { x: PAGE_W - MARGIN, y: y - 2 }, thickness: 0.75, color: RULE })
       }
       return
     }
@@ -256,8 +296,8 @@ export async function createConsentPdf(
     const wrapped = wrap(label, font, 9.5, PAGE_W - MARGIN * 2 - 60)
     if (y - (wrapped.length * 12 + 6) < 60) newPage()
     y -= 14
-    const answerColor = answer === "Yes" ? rgb(0.72, 0.25, 0.05) : rgb(0.2, 0.2, 0.2)
-    page.drawText(wrapped[0], { x: LABEL_X, y, size: 9.5, font })
+    const answerColor = answer === "Yes" ? rgb(0.72, 0.25, 0.05) : INK
+    page.drawText(wrapped[0], { x: LABEL_X, y, size: 9.5, font, color: INK })
     page.drawText(toWinAnsi(answer), {
       x: PAGE_W - MARGIN - 34,
       y,
@@ -267,7 +307,7 @@ export async function createConsentPdf(
     })
     for (let i = 1; i < wrapped.length; i++) {
       y -= 12
-      page.drawText(wrapped[i], { x: LABEL_X, y, size: 9.5, font })
+      page.drawText(wrapped[i], { x: LABEL_X, y, size: 9.5, font, color: INK })
     }
 
     const detailKey = q.detail?.key ?? q.detailDate?.key
@@ -277,7 +317,7 @@ export async function createConsentPdf(
       for (const l of wrap(`${detailLabel}: ${detailValue}`, italic, 9, PAGE_W - MARGIN * 2 - 80)) {
         if (y - 12 < 60) newPage()
         y -= 12
-        page.drawText(l, { x: LABEL_X + 14, y, size: 9, font: italic, color: rgb(0.35, 0.35, 0.35) })
+        page.drawText(l, { x: LABEL_X + 14, y, size: 9, font: italic, color: MUTED })
       }
     }
   }
@@ -285,18 +325,18 @@ export async function createConsentPdf(
   const bullets = (items: string[]) => {
     if (!items.length) {
       y -= 14
-      page.drawText("None selected", { x: LABEL_X, y, size: 10, font, color: rgb(0.45, 0.45, 0.45) })
+      page.drawText("None selected", { x: LABEL_X, y, size: 10, font, color: MUTED })
       return
     }
     for (const item of items) {
       const wrapped = wrap(item, font, 9.5, PAGE_W - MARGIN * 2 - 30)
       if (y - wrapped.length * 12 < 60) newPage()
       y -= 13
-      page.drawText("-", { x: LABEL_X, y, size: 9.5, font: bold, color: GREEN })
-      page.drawText(wrapped[0], { x: LABEL_X + 12, y, size: 9.5, font })
+      page.drawText("-", { x: LABEL_X, y, size: 9.5, font: bold, color: PRIMARY })
+      page.drawText(wrapped[0], { x: LABEL_X + 12, y, size: 9.5, font, color: INK })
       for (let i = 1; i < wrapped.length; i++) {
         y -= 12
-        page.drawText(wrapped[i], { x: LABEL_X + 12, y, size: 9.5, font })
+        page.drawText(wrapped[i], { x: LABEL_X + 12, y, size: 9.5, font, color: INK })
       }
     }
   }
@@ -353,13 +393,13 @@ export async function createConsentPdf(
   for (const l of wrap(Q17_FOOTNOTE, italic, 8, PAGE_W - MARGIN * 2 - 20)) {
     if (y - 11 < 60) newPage()
     y -= 11
-    page.drawText(l, { x: LABEL_X, y, size: 8, font: italic, color: rgb(0.45, 0.45, 0.45) })
+    page.drawText(l, { x: LABEL_X, y, size: 8, font: italic, color: MUTED })
   }
 
   y -= 8
   if (y < 90) newPage()
   y -= 14
-  page.drawText("18. Check all that apply to you:", { x: LABEL_X, y, size: 9.5, font: bold })
+  page.drawText("18. Check all that apply to you:", { x: LABEL_X, y, size: 9.5, font: bold, color: INK })
   if (blank) optionList(Q18_CONDITIONS)
   else bullets(Array.isArray(form.q18Conditions) ? form.q18Conditions : [])
 
@@ -376,7 +416,7 @@ export async function createConsentPdf(
   )) {
     if (y - 12 < 60) newPage()
     y -= 12
-    page.drawText(l, { x: LABEL_X, y, size: 9, font, color: rgb(0.3, 0.3, 0.3) })
+    page.drawText(l, { x: LABEL_X, y, size: 9, font, color: rgb(0.35, 0.35, 0.35) })
   }
   y -= 4
   line("Signature (typed)", safe(form.consentName))
@@ -416,14 +456,14 @@ export async function createConsentPdf(
   if (y - 14 < 70) newPage()
   y -= 12
   page.drawText("Completed by the immunizer at the time of the appointment.", {
-    x: LABEL_X, y, size: 8.5, font: italic, color: rgb(0.45, 0.45, 0.45),
+    x: LABEL_X, y, size: 8.5, font: italic, color: MUTED,
   })
 
   const COL_W = (PAGE_W - MARGIN * 2) / 3
   const cellField = (colX: number, atY: number, label: string, value: string) => {
-    page.drawText(toWinAnsi(label), { x: colX, y: atY, size: 7.5, font, color: rgb(0.45, 0.45, 0.45) })
-    if (value) page.drawText(toWinAnsi(value), { x: colX, y: atY - 12, size: 9, font })
-    page.drawLine({ start: { x: colX, y: atY - 14 }, end: { x: colX + COL_W - 14, y: atY - 14 }, thickness: 0.5, color: rgb(0.82, 0.82, 0.82) })
+    page.drawText(toWinAnsi(label), { x: colX, y: atY, size: 7.5, font, color: MUTED })
+    if (value) page.drawText(toWinAnsi(value), { x: colX, y: atY - 12, size: 9, font, color: INK })
+    page.drawLine({ start: { x: colX, y: atY - 14 }, end: { x: colX + COL_W - 14, y: atY - 14 }, thickness: 0.75, color: RULE })
   }
 
   for (const row of adminRows) {
@@ -439,22 +479,23 @@ export async function createConsentPdf(
   if (y - 22 < 60) newPage()
   y -= 22
   const imLabel = "Immunizer name (print):"
-  page.drawText(imLabel, { x: LABEL_X, y, size: 9, font: bold })
+  page.drawText(imLabel, { x: LABEL_X, y, size: 9, font: bold, color: INK })
   const imX = LABEL_X + bold.widthOfTextAtSize(imLabel, 9) + 8
-  if (form.immunizerName && !blank) page.drawText(toWinAnsi(safe(form.immunizerName)), { x: imX, y, size: 9, font })
-  page.drawLine({ start: { x: imX, y: y - 2 }, end: { x: PAGE_W - MARGIN, y: y - 2 }, thickness: 0.5, color: rgb(0.82, 0.82, 0.82) })
+  if (form.immunizerName && !blank) page.drawText(toWinAnsi(safe(form.immunizerName)), { x: imX, y, size: 9, font, color: INK })
+  page.drawLine({ start: { x: imX, y: y - 2 }, end: { x: PAGE_W - MARGIN, y: y - 2 }, thickness: 0.75, color: RULE })
 
-  // ---- Footer on every page ----------------------------------------------
+  // ---- Footer on every page: stamp, page count, copyright -----------------
   const stamp = `Generated by North Falmouth Pharmacy | ${new Date().toLocaleString()}`
-  for (const p of pdf.getPages()) {
-    p.drawLine({
-      start: { x: MARGIN, y: 50 },
-      end: { x: PAGE_W - MARGIN, y: 50 },
-      thickness: 0.5,
-      color: rgb(0.8, 0.8, 0.8),
-    })
-    p.drawText(toWinAnsi(stamp), { x: MARGIN, y: 35, size: 8, font, color: rgb(0.4, 0.4, 0.4) })
-  }
+  const copyright = `© ${new Date().getFullYear()} NFPLTC. All Rights Reserved.`
+  const pages = pdf.getPages()
+  pages.forEach((p, i) => {
+    p.drawLine({ start: { x: MARGIN, y: 52 }, end: { x: PAGE_W - MARGIN, y: 52 }, thickness: 0.75, color: RULE })
+    p.drawText(toWinAnsi(stamp), { x: MARGIN, y: 37, size: 8, font, color: MUTED })
+    const pageLabel = `Page ${i + 1} of ${pages.length}`
+    p.drawText(pageLabel, { x: PAGE_W - MARGIN - font.widthOfTextAtSize(pageLabel, 8), y: 37, size: 8, font, color: MUTED })
+    const cw = font.widthOfTextAtSize(copyright, 7.5)
+    p.drawText(copyright, { x: (PAGE_W - cw) / 2, y: 24, size: 7.5, font, color: rgb(0.6, 0.6, 0.6) })
+  })
 
   return await pdf.save()
 }
