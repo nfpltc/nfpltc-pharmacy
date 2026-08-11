@@ -19,6 +19,7 @@ interface Vaccine {
   administered_by: string
   lot_number: string
   screening_responses: Record<string, any> | null
+  review_flags: string[] | null
   notes: string | null
   created_at: string
   [key: string]: any
@@ -44,13 +45,37 @@ const VACCINE_SECTIONS: DetailSection[] = [
     title: "Vaccine Selection",
     fields: [
       { key: "vaccine_type", label: "Vaccines Selected" },
+      { key: "other_vaccine_text", label: "Other Vaccine" },
+    ],
+  },
+  {
+    title: "Screening",
+    fields: [
+      { key: "review_flags",   label: "Needs Review" },
+      { key: "q18_conditions", label: "COVID-19 Conditions (Q18)" },
+    ],
+  },
+  {
+    title: "Insurance",
+    fields: [
+      { key: "insurance_types",     label: "Coverage Type" },
+      { key: "insurance_plan_name", label: "Plan Name" },
+      { key: "member_id",           label: "Member/Recipient ID" },
+      { key: "group_no",            label: "Group No." },
+      { key: "rx_bin",              label: "RX BIN" },
+      { key: "rx_pcn",              label: "RX PCN" },
+      { key: "medicare_card_no",    label: "Medicare Card No." },
+      { key: "medicare_id",         label: "Medicare ID" },
+      { key: "ssn_last4",           label: "SSN (last 4)" },
+      { key: "authorize_billing",   label: "Authorized Billing" },
     ],
   },
   {
     title: "Consent",
     fields: [
-      { key: "consent_name", label: "Consent Signed By" },
-      { key: "consent_date", label: "Consent Date" },
+      { key: "consent_name",  label: "Consent Signed By" },
+      { key: "consent_date",  label: "Consent Date" },
+      { key: "consent_agree", label: "Agreed to Consent" },
     ],
   },
   {
@@ -127,7 +152,16 @@ export default function AdminVaccinesPage() {
   const fmt = (d: string) => d ? new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "—"
 
   return (
-    <div>
+    <main className="min-h-screen bg-[#F7F5EF]">
+      <section className="relative isolate overflow-hidden" style={{ background: "linear-gradient(135deg,#0EA171 0%,#0B8F79 50%,#0B7C79 100%)", padding: "48px 0 56px" }}>
+        <div className="mx-auto w-full max-w-6xl px-6">
+          <Link href="/admin" className="mb-4 inline-flex items-center gap-1.5 text-sm text-white/80 hover:text-white"><ArrowLeft className="h-4 w-4" /> Dashboard</Link>
+          <h1 className="text-2xl font-semibold text-white md:text-3xl">Vaccine Consent Forms</h1>
+          <p className="mt-2 text-white/90">{c.t} total · {c.p} pending · {c.sc} scheduled · {c.a} administered</p>
+        </div>
+      </section>
+
+      <section className="mx-auto w-full max-w-6xl px-6 py-8">
         {msg && <div className={`mb-6 flex items-center justify-between rounded-lg border p-4 text-sm ${msg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-red-200 bg-red-50 text-red-700"}`}><span>{msg.text}</span><button onClick={() => setMsg(null)}>×</button></div>}
 
         <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -153,7 +187,8 @@ export default function AdminVaccinesPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 flex-wrap">
                     <p className="font-medium text-gray-900">{s.first_name} {s.last_name}</p>
-                    <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">{s.vaccine_type}</span>
+                    {s.vaccine_type && <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">{s.vaccine_type}</span>}
+                    {s.review_flags?.length ? <span className="px-2 py-1 bg-amber-100 text-amber-800 rounded text-xs font-medium" title={s.review_flags.join(" · ")}>⚠ Needs review ({s.review_flags.length})</span> : null}
                     {editId === s.id ? <select value={editForm.status} onChange={e => setEditForm({ ...editForm, status: e.target.value })} className="text-sm border rounded px-2 py-1">
                       <option value="pending">Pending</option><option value="scheduled">Scheduled</option><option value="administered">Administered</option><option value="cancelled">Cancelled</option>
                     </select> : <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusColors[s.status] || "bg-gray-100"}`}>{s.status}</span>}
@@ -166,6 +201,7 @@ export default function AdminVaccinesPage() {
                     <button onClick={() => setEditId(null)} className="text-sm text-gray-400 ml-2">Cancel</button>
                   </> : <>
                     <button onClick={() => setViewing(s)} className="rounded-lg p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600" title="View details">👁️</button>
+                    <a href={`/api/admin/vaccines/pdf?id=${s.id}`} className="rounded-lg p-2 text-gray-400 hover:bg-purple-50 hover:text-purple-600" title="Download consent PDF">⬇️</a>
                     <button onClick={() => { setEditId(s.id); setEditForm({ status: s.status, notes: s.notes || "" }) }} className="rounded-lg p-2 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit">✏️</button>
                     <button onClick={() => del(s.id)} className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600" title="Delete">🗑️</button>
                   </>}
@@ -179,12 +215,14 @@ export default function AdminVaccinesPage() {
                     <p>Administered: {s.administered_date ? fmt(s.administered_date) : "Not yet"}</p>
                     <p>By: {s.administered_by || "—"}</p><p>Lot #: {s.lot_number || "—"}</p></div>
                   <div><h4 className="font-medium mb-2">Screening</h4>
-                    {s.screening_responses ? <p className="text-emerald-600">✓ Screening completed</p> : <p className="text-gray-500">No screening data</p>}</div>
+                    {s.screening_responses ? <p className="text-emerald-600">✓ Screening completed</p> : <p className="text-gray-500">No screening data</p>}
+                    {s.review_flags?.length ? <ul className="mt-2 list-disc pl-4 text-amber-700">{s.review_flags.map(f => <li key={f}>{f}</li>)}</ul> : null}
+                    <a href={`/api/admin/vaccines/pdf?id=${s.id}`} className="mt-2 inline-block font-medium text-emerald-700 hover:underline">Download consent PDF ↓</a></div>
                 </div>
                 {s.notes && <div className="mt-4 pt-4 border-t"><p><span className="font-medium">Notes:</span> {s.notes}</p></div>}
               </div>}
             </div>))}</div>}
-      
+      </section>
 
       {viewing && (
         <SubmissionDetailModal
@@ -195,6 +233,6 @@ export default function AdminVaccinesPage() {
           onClose={() => setViewing(null)}
         />
       )}
-    </div>
+    </main>
   )
 }
