@@ -5,6 +5,7 @@ import { useForm, useFieldArray, type UseFormRegister } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { HippaDisclaimerModal } from "@/components/HippaDisclaimerModal"
+import { Printer } from "lucide-react"
 import {
   ADMIN_TABLE_COLUMNS,
   ALL_SCREENING,
@@ -503,14 +504,40 @@ export default function VaccineConsentPage() {
           <p className="mt-4 max-w-2xl text-white/80">
             Please complete every section. You will be able to download a PDF copy once you submit.
           </p>
-          <a
-            href="/api/forms/vaccine-consent/blank"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50"
-          >
-            ⬇ Prefer paper? Download a blank form to print and fill by hand
-          </a>
+        </div>
+      </section>
+
+      {/* Print-a-blank-form callout — a separate, high-contrast card (not just a
+          link in the colorful hero above) so it's unmistakable for anyone who
+          prefers paper, including patients who may not be comfortable filling
+          out a long form on a screen. */}
+      <section className="bg-[#faf7f3]">
+        <div className="mx-auto max-w-5xl px-6 pt-10">
+          <div className="flex flex-col items-start gap-5 rounded-2xl border-2 border-emerald-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between md:p-7">
+            <div className="flex items-start gap-4">
+              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                <Printer className="h-7 w-7" aria-hidden="true" />
+              </span>
+              <div>
+                <p className="text-lg font-semibold text-gray-900 md:text-xl">
+                  Prefer to fill this out on paper?
+                </p>
+                <p className="mt-1 max-w-md text-sm text-gray-600 md:text-base">
+                  Click the button to open a blank copy of this form. Print it, fill it in with a
+                  pen, and bring it with you to your appointment.
+                </p>
+              </div>
+            </div>
+            <a
+              href="/api/forms/vaccine-consent/blank"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-full bg-emerald-700 px-7 py-3.5 text-base font-semibold text-white shadow-sm transition hover:bg-emerald-800 sm:w-auto"
+            >
+              <Printer className="h-5 w-5" aria-hidden="true" />
+              Print a Blank Form
+            </a>
+          </div>
         </div>
       </section>
 
