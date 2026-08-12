@@ -3,6 +3,15 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { ArrowLeft } from "lucide-react"
 import SubmissionDetailModal, { DetailSection } from "@/components/SubmissionDetailModal"
+import {
+  GENERAL_SCREENING, LIVE_VACCINE_SCREENING, COVID_SCREENING,
+  extractScreeningAnswers, type ScreeningQuestion,
+} from "@/lib/vaccine-consent-form"
+
+// Q1-17 as {key,label} pairs for the View modal, reusing the exact question
+// text and numbering from the consent form/PDF so the two never drift apart.
+const screeningFields = (qs: ScreeningQuestion[]) =>
+  qs.map((q) => ({ key: q.key, label: `${q.number}. ${q.text}` }))
 
 interface Vaccine {
   id: string
@@ -33,12 +42,19 @@ const VACCINE_SECTIONS: DetailSection[] = [
       { key: "first_name", label: "First Name" },
       { key: "last_name",  label: "Last Name" },
       { key: "dob",        label: "Date of Birth" },
+      { key: "age",        label: "Age" },
+      { key: "gender",     label: "Gender" },
+      { key: "race",       label: "Race" },
+      { key: "ethnicity",  label: "Ethnicity" },
       { key: "phone",      label: "Phone" },
       { key: "email",      label: "Email" },
       { key: "address",    label: "Address" },
       { key: "city",       label: "City" },
       { key: "state",      label: "State" },
       { key: "zip",        label: "ZIP" },
+      { key: "physician_name",  label: "Primary Care Physician" },
+      { key: "physician_phone", label: "Physician Phone" },
+      { key: "physician_fax",   label: "Physician Fax" },
     ],
   },
   {
@@ -49,10 +65,24 @@ const VACCINE_SECTIONS: DetailSection[] = [
     ],
   },
   {
-    title: "Screening",
+    title: "Screening — Needs Review",
     fields: [
-      { key: "review_flags",   label: "Needs Review" },
-      { key: "q18_conditions", label: "COVID-19 Conditions (Q18)" },
+      { key: "review_flags", label: "Needs Review" },
+    ],
+  },
+  {
+    title: "Section B - General Vaccine Screening",
+    fields: screeningFields(GENERAL_SCREENING),
+  },
+  {
+    title: "Section B - Live Vaccine Screening",
+    fields: screeningFields(LIVE_VACCINE_SCREENING),
+  },
+  {
+    title: "Section C - COVID-19 Vaccine Screening",
+    fields: [
+      ...screeningFields(COVID_SCREENING),
+      { key: "q18Conditions", label: "18. Conditions checked" },
     ],
   },
   {
@@ -76,6 +106,13 @@ const VACCINE_SECTIONS: DetailSection[] = [
       { key: "consent_name",  label: "Consent Signed By" },
       { key: "consent_date",  label: "Consent Date" },
       { key: "consent_agree", label: "Agreed to Consent" },
+    ],
+  },
+  {
+    title: "Vaccine Administration (Pharmacy Use Only)",
+    fields: [
+      { key: "vaccine_rows",    label: "Doses Given" },
+      { key: "immunizer_name",  label: "Immunizer Name" },
     ],
   },
   {
@@ -200,7 +237,7 @@ export default function AdminVaccinesPage() {
                     <button onClick={save} className="text-sm font-medium text-emerald-600">Save</button>
                     <button onClick={() => setEditId(null)} className="text-sm text-gray-400 ml-2">Cancel</button>
                   </> : <>
-                    <button onClick={() => setViewing(s)} className="rounded-lg p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600" title="View details">👁️</button>
+                    <button onClick={() => setViewing({ ...s, ...extractScreeningAnswers(s) })} className="rounded-lg p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600" title="View details">👁️</button>
                     <a href={`/api/admin/vaccines/pdf?id=${s.id}`} className="rounded-lg p-2 text-gray-400 hover:bg-purple-50 hover:text-purple-600" title="Download consent PDF">⬇️</a>
                     <button onClick={() => { setEditId(s.id); setEditForm({ status: s.status, notes: s.notes || "" }) }} className="rounded-lg p-2 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit">✏️</button>
                     <button onClick={() => del(s.id)} className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600" title="Delete">🗑️</button>

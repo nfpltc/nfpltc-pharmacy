@@ -39,7 +39,10 @@ export default function SubmissionDetailModal({
 
   const shownKeys = new Set<string>()
   for (const s of sections) for (const f of s.fields) shownKeys.add(f.key)
-  for (const k of ["id", "raw_data", "full_form_date", "screening_responses"]) shownKeys.add(k)
+  // full_form_data (and the legacy misspelled full_form_date) hold the entire
+  // raw submission blob for forms that keep one — never dump that raw, it's
+  // already surfaced field-by-field through each page's own section schema.
+  for (const k of ["id", "raw_data", "full_form_data", "full_form_date", "screening_responses"]) shownKeys.add(k)
   const otherKeys = Object.keys(data).filter(k => !shownKeys.has(k))
 
   // ── Print ONLY the modal contents ──────────────────────────────────────
@@ -199,22 +202,6 @@ export default function SubmissionDetailModal({
               </div>
             </section>
           )}
-
-          {data.screening_responses && (
-            <section className="mb-2">
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-emerald-700">
-                Screening Responses
-              </h3>
-              <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm">
-                {Object.entries(data.screening_responses as Record<string, any>).map(([k, v]) => (
-                  <div key={k} className="flex justify-between border-b border-gray-200 py-1.5 last:border-0">
-                    <span className="text-gray-600">{prettyLabel(k)}</span>
-                    <span className="font-medium">{String(v)}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
         </div>
       </div>
     </div>
@@ -231,11 +218,62 @@ function isNonEmpty(v: any): boolean {
 }
 
 function prettyLabel(key: string): string {
-  return key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+  return key
+    .replace(/_/g, " ")                     // snake_case -> spaces
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")  // camelCase -> spaces
+    .replace(/\b\w/g, c => c.toUpperCase())
 }
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[/\\?%*:|"<>]/g, "-").trim()
+}
+
+/**
+ * Turn any field value into readable text — never raw JSON.stringify output.
+ * - A plain string array ("q18_conditions", "insurance_types", ...) becomes a
+ *   comma list.
+ * - An array of objects (e.g. the vaccine administration rows, one row per
+ *   dose given) becomes one numbered, comma-joined line per entry.
+ * - A plain object becomes its own comma-joined key: value list.
+ */
+function formatValue(value: any): string {
+  if (Array.isArray(value)) {
+    if (!value.length) return ""
+    if (value[0] !== null && typeof value[0] === "object") {
+      return value
+        .map((row, i) => {
+          const parts = Object.entries(row || {})
+            .filter(([, v]) => isNonEmpty(v))
+            .map(([k, v]) => `${prettyLabel(k)}: ${v}`)
+          return `#${i + 1} — ${parts.join(", ")}`
+        })
+        .join("\n")
+    }
+    return value.join(", ")
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.entries(value)
+      .filter(([, v]) => isNonEmpty(v))
+      .map(([k, v]) => `${prettyLabel(k)}: ${v}`)
+      .join(", ")
+  }
+  return String(value)
+}
+
+function formatFieldDisplay(value: any): string {
+  // Match how the PDF prints these (e.g. "Agreed to Consent: Yes"), not the
+  // raw JS boolean.
+  if (typeof value === "boolean") return value ? "Yes" : "No"
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+    try {
+      const d = new Date(value)
+      return value.length <= 10
+        ? d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+        : d.toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    } catch { return String(value) }
+  }
+  if (typeof value === "object" && value !== null) return formatValue(value)
+  return String(value)
 }
 
 function FieldRow({ label, value }: { label: string; value: any }) {
@@ -247,23 +285,10 @@ function FieldRow({ label, value }: { label: string; value: any }) {
       </div>
     )
   }
-  let display: string
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
-    try {
-      const d = new Date(value)
-      display = value.length <= 10
-        ? d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
-        : d.toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
-    } catch { display = String(value) }
-  } else if (typeof value === "object") {
-    display = JSON.stringify(value)
-  } else {
-    display = String(value)
-  }
   return (
     <div className="text-sm">
       <div className="text-xs font-medium text-gray-500">{label}</div>
-      <div className="break-words text-gray-900">{display}</div>
+      <div className="whitespace-pre-wrap break-words text-gray-900">{formatFieldDisplay(value)}</div>
     </div>
   )
 }
@@ -283,6 +308,7 @@ function buildPrintHtml(
 
   const renderValue = (v: any): string => {
     if (!nonEmpty(v)) return `<div class="print-empty">—</div>`
+    if (typeof v === "boolean") return `<div class="print-field-value">${v ? "Yes" : "No"}</div>`
     if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) {
       try {
         const d = new Date(v)
@@ -291,7 +317,9 @@ function buildPrintHtml(
           : d.toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</div>`
       } catch { /* fall through */ }
     }
-    if (typeof v === "object") return `<div class="print-field-value">${h(JSON.stringify(v))}</div>`
+    if (typeof v === "object") {
+      return `<div class="print-field-value" style="white-space:pre-wrap">${h(formatValue(v))}</div>`
+    }
     return `<div class="print-field-value">${h(String(v))}</div>`
   }
 
