@@ -113,22 +113,9 @@ export async function createConsentPdf(
   let page = pdf.addPage([PAGE_W, PAGE_H])
   let y = PAGE_H - 24
 
-  // Paints a filled rectangle, then masks its four corners with page-background
-  // circles to fake a rounded-corner card — pdf-lib has no native corner radius.
-  // Only safe when called before anything else is drawn under the corners,
-  // which is true everywhere this is used (headers on a fresh page position).
-  const roundedRect = (x: number, atY: number, w: number, h: number, r: number, color: RGB, bg: RGB = WHITE) => {
-    page.drawRectangle({ x, y: atY, width: w, height: h, color })
-    for (const [cx, cy] of [
-      [x + r, atY + r], [x + w - r, atY + r], [x + r, atY + h - r], [x + w - r, atY + h - r],
-    ] as const) {
-      page.drawEllipse({ x: cx, y: cy, xScale: r, yScale: r, color: bg })
-    }
-  }
-
-  // Same idea, but the fill is a horizontal gradient between two brand colors
-  // (approximated with thin bands) instead of one flat color.
-  const roundedGradientRect = (x: number, atY: number, w: number, h: number, r: number, from: RGB, to: RGB) => {
+  // A left-to-right gradient between two brand colors, approximated with thin
+  // vertical bands (pdf-lib has no native gradient fill).
+  const gradientRect = (x: number, atY: number, w: number, h: number, from: RGB, to: RGB) => {
     const bands = 32
     const bw = w / bands
     for (let i = 0; i < bands; i++) {
@@ -137,11 +124,6 @@ export async function createConsentPdf(
         x: x + i * bw, y: atY, width: bw + 0.75, height: h,
         color: rgb(from.red + (to.red - from.red) * t, from.green + (to.green - from.green) * t, from.blue + (to.blue - from.blue) * t),
       })
-    }
-    for (const [cx, cy] of [
-      [x + r, atY + r], [x + w - r, atY + r], [x + r, atY + h - r], [x + w - r, atY + h - r],
-    ] as const) {
-      page.drawEllipse({ x: cx, y: cy, xScale: r, yScale: r, color: WHITE })
     }
   }
 
@@ -159,7 +141,7 @@ export async function createConsentPdf(
 
   const TITLE_BAR_H = 40
   const drawTitleBar = (atY: number) => {
-    roundedGradientRect(MARGIN, atY, PAGE_W - MARGIN * 2, TITLE_BAR_H, 8, PRIMARY, ACCENT)
+    gradientRect(MARGIN, atY, PAGE_W - MARGIN * 2, TITLE_BAR_H, PRIMARY, ACCENT)
     const size = 14
     const w = bold.widthOfTextAtSize(HEADING, size)
     page.drawText(HEADING, { x: (PAGE_W - w) / 2, y: atY + (TITLE_BAR_H - size) / 2 + 3, size, font: bold, color: WHITE })
@@ -208,7 +190,7 @@ export async function createConsentPdf(
     y -= 26
     if (y < 92) newPage()
     const h = 23
-    roundedRect(MARGIN, y - 6, PAGE_W - MARGIN * 2, h, 5, TINT)
+    page.drawRectangle({ x: MARGIN, y: y - 6, width: PAGE_W - MARGIN * 2, height: h, color: TINT })
     // Thin accent tab on the left edge of the card for a bit of visual polish.
     page.drawRectangle({ x: MARGIN, y: y - 6, width: 3.5, height: h, color: ACCENT })
     page.drawText(toWinAnsi(title), { x: MARGIN + 12, y, size: 12, font: bold, color: PRIMARY })
@@ -239,11 +221,10 @@ export async function createConsentPdf(
     }
   }
 
-  // A small checkbox for the printable blank form — rounded, brand-tinted, so
-  // it reads as a deliberate form control rather than a plain HTML default.
+  // A small checkbox for the printable blank form — brand-tinted, so it reads
+  // as a deliberate form control rather than a plain HTML default.
   const checkbox = (x: number, atY: number) => {
-    roundedRect(x, atY - 1, 10, 10, 2, rgb(0.96, 0.99, 0.98), rgb(0.96, 0.99, 0.98))
-    page.drawRectangle({ x: x + 0.5, y: atY - 0.5, width: 9, height: 9, borderColor: ACCENT, borderWidth: 1, color: undefined })
+    page.drawRectangle({ x, y: atY - 1, width: 10, height: 10, color: rgb(0.96, 0.99, 0.98), borderColor: ACCENT, borderWidth: 1 })
   }
 
   // A checkbox list of options — used in blank mode for the multi-select fields.
