@@ -23,10 +23,15 @@ import {
   type ScreeningQuestion,
 } from "./vaccine-consent-form"
 
+// True US Letter (8.5 x 11in). The previous 900pt (12.5in) height had no
+// matching physical paper size, so browsers/printers silently rescaled the
+// page to fit actual Letter/Legal paper — shifting every label off its
+// write-in line and clipping content (including the footer) near the bottom.
 const PAGE_W = 612
-const PAGE_H = 900
+const PAGE_H = 792
 const MARGIN = 40
 const HEADING = "Vaccine Administration Consent Form"
+const PHARMACY_ADDRESS = ["111 County Rd", "North Falmouth, MA 02556", "(508) 564-4459", "www.nfpltc.com"]
 
 // Brand palette — matches the site's hero gradient (emerald-600 -> teal-600)
 // and its emerald-700 accent text/links, so the PDF reads as the same brand.
@@ -127,17 +132,28 @@ export async function createConsentPdf(
     }
   }
 
-  // ---- Header: logo (or wordmark) + gradient title card --------------------
+  // ---- Header: logo (left) + pharmacy address (right) + gradient title -----
   const logo = await embedLogo(pdf)
+  const LOGO_W = 130
+  let logoH: number
   if (logo) {
-    const targetW = 190
-    const targetH = logo.height * (targetW / logo.width)
-    page.drawImage(logo.node, { x: MARGIN, y: y - targetH, width: targetW, height: targetH })
-    y -= targetH
+    logoH = logo.height * (LOGO_W / logo.width)
+    page.drawImage(logo.node, { x: MARGIN, y: y - logoH, width: LOGO_W, height: logoH })
   } else {
-    page.drawText("North Falmouth Pharmacy", { x: MARGIN, y: y - 18, size: 18, font: bold, color: PRIMARY })
-    y -= 26
+    page.drawText("North Falmouth Pharmacy", { x: MARGIN, y: y - 15, size: 15, font: bold, color: PRIMARY })
+    logoH = 22
   }
+
+  const ADDR_LINE_H = 11
+  let addrY = y - 9
+  for (const l of PHARMACY_ADDRESS) {
+    const w = font.widthOfTextAtSize(l, 8.5)
+    page.drawText(l, { x: PAGE_W - MARGIN - w, y: addrY, size: 8.5, font, color: MUTED })
+    addrY -= ADDR_LINE_H
+  }
+  const addressH = PHARMACY_ADDRESS.length * ADDR_LINE_H
+
+  y -= Math.max(logoH, addressH)
 
   const TITLE_BAR_H = 40
   const drawTitleBar = (atY: number) => {
@@ -203,7 +219,7 @@ export async function createConsentPdf(
 
   const line = (label: string, value: any) => {
     if (blank) {
-      if (y - 16 < 60) newPage()
+      if (y - 16 < 70) newPage()
       y -= 16
       page.drawText(toWinAnsi(`${label}:`), { x: LABEL_X, y, size: 10, font: bold, color: INK })
       page.drawLine({ start: { x: VALUE_X, y: y - 2 }, end: { x: PAGE_W - MARGIN, y: y - 2 }, thickness: 0.75, color: RULE })
@@ -211,7 +227,7 @@ export async function createConsentPdf(
     }
     const text = value === null || value === undefined || value === "" ? "-" : String(value)
     const wrapped = wrap(text, font, 10, VALUE_W)
-    if (y - (14 + (wrapped.length - 1) * 13) < 60) newPage()
+    if (y - (14 + (wrapped.length - 1) * 13) < 70) newPage()
     y -= 14
     page.drawText(toWinAnsi(`${label}:`), { x: LABEL_X, y, size: 10, font: bold, color: INK })
     page.drawText(wrapped[0], { x: VALUE_X, y, size: 10, font, color: INK })
@@ -231,7 +247,7 @@ export async function createConsentPdf(
   const optionList = (items: readonly string[]) => {
     for (const item of items) {
       const wrapped = wrap(item, font, 9.5, PAGE_W - MARGIN * 2 - 32)
-      if (y - wrapped.length * 12 < 60) newPage()
+      if (y - wrapped.length * 12 < 70) newPage()
       y -= 14
       checkbox(LABEL_X, y - 1)
       page.drawText(toWinAnsi(wrapped[0]), { x: LABEL_X + 17, y, size: 9.5, font, color: INK })
@@ -251,7 +267,7 @@ export async function createConsentPdf(
     if (blank) {
       const label = q.note ? `${q.number}. ${q.text} (${q.note})` : `${q.number}. ${q.text}`
       const wrapped = wrap(label, font, 9.5, PAGE_W - MARGIN * 2 - 96)
-      if (y - (wrapped.length * 12 + 18) < 60) newPage()
+      if (y - (wrapped.length * 12 + 18) < 70) newPage()
       y -= 14
       page.drawText(wrapped[0], { x: LABEL_X, y, size: 9.5, font, color: INK })
       checkbox(PAGE_W - MARGIN - 84, y - 1)
@@ -263,7 +279,7 @@ export async function createConsentPdf(
         page.drawText(wrapped[i], { x: LABEL_X, y, size: 9.5, font, color: INK })
       }
       if (q.detail || q.detailDate) {
-        if (y - 13 < 60) newPage()
+        if (y - 13 < 70) newPage()
         y -= 13
         const flabel = q.detailDate ? "If yes, date of last dose:" : "If yes, please list:"
         page.drawText(flabel, { x: LABEL_X + 14, y, size: 8.5, font: italic, color: MUTED })
@@ -275,7 +291,7 @@ export async function createConsentPdf(
     const answer = safe(form[q.key]) || "-"
     const label = q.note ? `${q.number}. ${q.text} (${q.note})` : `${q.number}. ${q.text}`
     const wrapped = wrap(label, font, 9.5, PAGE_W - MARGIN * 2 - 60)
-    if (y - (wrapped.length * 12 + 6) < 60) newPage()
+    if (y - (wrapped.length * 12 + 6) < 70) newPage()
     y -= 14
     const answerColor = answer === "Yes" ? rgb(0.72, 0.25, 0.05) : INK
     page.drawText(wrapped[0], { x: LABEL_X, y, size: 9.5, font, color: INK })
@@ -296,7 +312,7 @@ export async function createConsentPdf(
     if (detailValue) {
       const detailLabel = q.detailDate ? "Date of last dose" : "Listed"
       for (const l of wrap(`${detailLabel}: ${detailValue}`, italic, 9, PAGE_W - MARGIN * 2 - 80)) {
-        if (y - 12 < 60) newPage()
+        if (y - 12 < 70) newPage()
         y -= 12
         page.drawText(l, { x: LABEL_X + 14, y, size: 9, font: italic, color: MUTED })
       }
@@ -311,7 +327,7 @@ export async function createConsentPdf(
     }
     for (const item of items) {
       const wrapped = wrap(item, font, 9.5, PAGE_W - MARGIN * 2 - 30)
-      if (y - wrapped.length * 12 < 60) newPage()
+      if (y - wrapped.length * 12 < 70) newPage()
       y -= 13
       page.drawText("-", { x: LABEL_X, y, size: 9.5, font: bold, color: PRIMARY })
       page.drawText(wrapped[0], { x: LABEL_X + 12, y, size: 9.5, font, color: INK })
@@ -372,13 +388,13 @@ export async function createConsentPdf(
   COVID_SCREENING.forEach(question)
   y -= 6
   for (const l of wrap(Q17_FOOTNOTE, italic, 8, PAGE_W - MARGIN * 2 - 20)) {
-    if (y - 11 < 60) newPage()
+    if (y - 11 < 70) newPage()
     y -= 11
     page.drawText(l, { x: LABEL_X, y, size: 8, font: italic, color: MUTED })
   }
 
   y -= 8
-  if (y < 90) newPage()
+  if (y < 96) newPage()
   y -= 14
   page.drawText("18. Check all that apply to you:", { x: LABEL_X, y, size: 9.5, font: bold, color: INK })
   if (blank) optionList(Q18_CONDITIONS)
@@ -395,12 +411,14 @@ export async function createConsentPdf(
     9,
     PAGE_W - MARGIN * 2 - 20
   )) {
-    if (y - 12 < 60) newPage()
+    if (y - 12 < 70) newPage()
     y -= 12
     page.drawText(l, { x: LABEL_X, y, size: 9, font, color: rgb(0.35, 0.35, 0.35) })
   }
   y -= 4
-  line("Signature (typed)", safe(form.consentName))
+  // Online submissions record a typed name as the e-signature; a printed form
+  // gets an actual pen signature, so "(typed)" would be misleading there.
+  line(blank ? "Signature" : "Signature (typed)", safe(form.consentName))
   line("Date", safe(form.consentDate))
   line("Agreed to consent", form?.consentAgree ? "Yes" : "No")
 
@@ -434,7 +452,7 @@ export async function createConsentPdf(
   const adminRows: any[] = filledRows.length ? filledRows : ADMIN_TABLE_ROWS.map((name) => ({ vaccine: name }))
 
   block("Vaccine Administration (Pharmacy Use Only)")
-  if (y - 14 < 70) newPage()
+  if (y - 14 < 78) newPage()
   y -= 12
   page.drawText("Completed by the immunizer at the time of the appointment.", {
     x: LABEL_X, y, size: 8.5, font: italic, color: MUTED,
@@ -448,7 +466,7 @@ export async function createConsentPdf(
   }
 
   for (const row of adminRows) {
-    if (y - 92 < 60) newPage()
+    if (y - 92 < 70) newPage()
     y -= 22
     for (let r = 0; r < 3; r++) {
       const cols = ADMIN_TABLE_COLUMNS.slice(r * 3, r * 3 + 3)
@@ -457,7 +475,7 @@ export async function createConsentPdf(
     }
   }
 
-  if (y - 22 < 60) newPage()
+  if (y - 22 < 70) newPage()
   y -= 22
   const imLabel = "Immunizer name (print):"
   page.drawText(imLabel, { x: LABEL_X, y, size: 9, font: bold, color: INK })
@@ -469,13 +487,16 @@ export async function createConsentPdf(
   const stamp = `Generated by North Falmouth Pharmacy | ${new Date().toLocaleString()}`
   const copyright = `© ${new Date().getFullYear()} NFPLTC. All Rights Reserved.`
   const pages = pdf.getPages()
+  // Sits well clear of a physical printer's unprintable bottom margin (unlike
+  // the previous y=24, which sat inside it on some printers and clipped the
+  // copyright line entirely).
   pages.forEach((p, i) => {
-    p.drawLine({ start: { x: MARGIN, y: 52 }, end: { x: PAGE_W - MARGIN, y: 52 }, thickness: 0.75, color: RULE })
-    p.drawText(toWinAnsi(stamp), { x: MARGIN, y: 37, size: 8, font, color: MUTED })
+    p.drawLine({ start: { x: MARGIN, y: 58 }, end: { x: PAGE_W - MARGIN, y: 58 }, thickness: 0.75, color: RULE })
+    p.drawText(toWinAnsi(stamp), { x: MARGIN, y: 44, size: 8, font, color: MUTED })
     const pageLabel = `Page ${i + 1} of ${pages.length}`
-    p.drawText(pageLabel, { x: PAGE_W - MARGIN - font.widthOfTextAtSize(pageLabel, 8), y: 37, size: 8, font, color: MUTED })
+    p.drawText(pageLabel, { x: PAGE_W - MARGIN - font.widthOfTextAtSize(pageLabel, 8), y: 44, size: 8, font, color: MUTED })
     const cw = font.widthOfTextAtSize(copyright, 7.5)
-    p.drawText(copyright, { x: (PAGE_W - cw) / 2, y: 24, size: 7.5, font, color: rgb(0.6, 0.6, 0.6) })
+    p.drawText(copyright, { x: (PAGE_W - cw) / 2, y: 30, size: 7.5, font, color: rgb(0.6, 0.6, 0.6) })
   })
 
   return await pdf.save()
