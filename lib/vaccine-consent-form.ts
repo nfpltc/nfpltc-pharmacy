@@ -330,3 +330,30 @@ export function collectScreeningResponses(form: Record<string, any>): Record<str
   }
   return out
 }
+
+/**
+ * The counterpart to collectScreeningResponses, for READING a stored row back
+ * out. The dedicated `screening_responses` column has not been reliably
+ * populated by every version of the submit route, but the full raw-submission
+ * blob (`full_form_data`, or the legacy misspelled `full_form_date`) always
+ * has these answers — that blob is what the consent PDF already reads, so
+ * pulling from the same place here is what makes the admin "View" screen
+ * agree with the "Download" PDF for the same submission.
+ */
+export function extractScreeningAnswers(row: Record<string, any>): Record<string, any> {
+  const payload = row.full_form_data ?? row.full_form_date ?? row.screening_responses ?? {}
+  const out: Record<string, any> = {}
+  for (const q of ALL_SCREENING) {
+    if (payload[q.key] !== undefined) out[q.key] = payload[q.key]
+    if (q.detail && payload[q.detail.key]) out[q.detail.key] = payload[q.detail.key]
+    if (q.detailDate && payload[q.detailDate.key]) out[q.detailDate.key] = payload[q.detailDate.key]
+  }
+  // q18Conditions may live in the blob (current rows) or as its own flat
+  // array column (older rows written before the blob existed).
+  if (Array.isArray(payload.q18Conditions) && payload.q18Conditions.length) {
+    out.q18Conditions = payload.q18Conditions
+  } else if (Array.isArray(row.q18_conditions) && row.q18_conditions.length) {
+    out.q18Conditions = row.q18_conditions
+  }
+  return out
+}
