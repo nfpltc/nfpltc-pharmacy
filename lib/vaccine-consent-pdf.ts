@@ -237,10 +237,70 @@ export async function createConsentPdf(
     }
   }
 
+  /**
+   * N short fields side by side in one row instead of stacked one-per-line —
+   * for fields short enough that a full-width row wastes space, e.g.
+   * Date of birth / Age / Gender. Works in both modes, like line().
+   */
+  const fieldRow = (fields: { label: string; value?: any }[]) => {
+    const gap = 16
+    const colW = (PAGE_W - MARGIN * 2 - gap * (fields.length - 1)) / fields.length
+    if (blank) {
+      if (y - 16 < 70) newPage()
+      y -= 16
+      fields.forEach((f, i) => {
+        const x = MARGIN + i * (colW + gap)
+        const labelText = `${f.label}:`
+        page.drawText(toWinAnsi(labelText), { x, y, size: 10, font: bold, color: INK })
+        const labelW = bold.widthOfTextAtSize(labelText, 10)
+        page.drawLine({ start: { x: x + labelW + 6, y: y - 2 }, end: { x: x + colW, y: y - 2 }, thickness: 0.75, color: RULE })
+      })
+      return
+    }
+    // Wrap each column's value independently and advance by whichever column
+    // needs the most lines, so a long value (e.g. an email) wraps onto a
+    // second line instead of silently losing text past the column edge.
+    const labelWidths = fields.map((f) => bold.widthOfTextAtSize(`${f.label}:`, 10))
+    const wrappedCols = fields.map((f, i) => {
+      const value = f.value === null || f.value === undefined || f.value === "" ? "-" : String(f.value)
+      return wrap(value, font, 10, colW - labelWidths[i] - 6)
+    })
+    const maxLines = Math.max(...wrappedCols.map((w) => w.length))
+    if (y - (14 + (maxLines - 1) * 13) < 70) newPage()
+    y -= 14
+    fields.forEach((f, i) => {
+      const x = MARGIN + i * (colW + gap)
+      page.drawText(toWinAnsi(`${f.label}:`), { x, y, size: 10, font: bold, color: INK })
+      wrappedCols[i].forEach((ln, li) => {
+        page.drawText(toWinAnsi(ln), { x: x + labelWidths[i] + 6, y: y - li * 13, size: 10, font, color: INK })
+      })
+    })
+    if (maxLines > 1) y -= (maxLines - 1) * 13
+  }
+
   // A small checkbox for the printable blank form — brand-tinted, so it reads
   // as a deliberate form control rather than a plain HTML default.
   const checkbox = (x: number, atY: number) => {
     page.drawRectangle({ x, y: atY - 1, width: 10, height: 10, color: rgb(0.96, 0.99, 0.98), borderColor: ACCENT, borderWidth: 1 })
+  }
+
+  // The vaccine-options checkboxes side by side in one row instead of
+  // stacked. "Other" gets its own short write-in blank beneath it so a
+  // patient can specify without needing a whole extra line.
+  const vaccineOptionRow = (items: readonly string[]) => {
+    if (y - 30 < 70) newPage()
+    y -= 16
+    const gap = 10
+    const colW = (PAGE_W - MARGIN * 2 - gap * (items.length - 1)) / items.length
+    for (let i = 0; i < items.length; i++) {
+      const x = MARGIN + i * (colW + gap)
+      checkbox(x, y - 1)
+      page.drawText(toWinAnsi(items[i]), { x: x + 15, y, size: 9.5, font, color: INK })
+      if (items[i] === "Other") {
+        page.drawLine({ start: { x: x + 15, y: y - 14 }, end: { x: x + colW, y: y - 14 }, thickness: 0.75, color: RULE })
+      }
+    }
+    y -= 14 // reserve room for Other's blank line so later content doesn't overlap it
   }
 
   // A checkbox list of options — used in blank mode for the multi-select fields.
@@ -345,29 +405,40 @@ export async function createConsentPdf(
   }
 
   // ---- Section A ----------------------------------------------------------
+  // Short fields (a date, a couple words, a phone number) sit side by side
+  // instead of each burning a full-width row; longer free-text fields (name,
+  // address, physician name) keep their own row so they have room to wrap.
   block("Section A - Patient Information")
   line("Name", `${safe(form.firstName)} ${safe(form.lastName)}`.trim())
-  line("Date of birth", safe(form.dob))
-  line("Age", safe(form.age))
-  line("Gender", safe(form.gender))
-  line("Race", safe(form.race))
-  line("Ethnicity", safe(form.ethnicity))
+  fieldRow([
+    { label: "Date of birth", value: safe(form.dob) },
+    { label: "Age", value: safe(form.age) },
+    { label: "Gender", value: safe(form.gender) },
+  ])
+  fieldRow([
+    { label: "Race", value: safe(form.race) },
+    { label: "Ethnicity", value: safe(form.ethnicity) },
+  ])
   line(
     "Home address",
     [safe(form.address), safe(form.city), `${safe(form.state)} ${safe(form.zip)}`.trim()]
       .filter(Boolean)
       .join(", ")
   )
-  line("Email", safe(form.email))
-  line("Phone", safe(form.phone))
+  fieldRow([
+    { label: "Email", value: safe(form.email) },
+    { label: "Phone", value: safe(form.phone) },
+  ])
   line("Primary care physician", safe(form.physicianName))
-  line("Physician phone", safe(form.physicianPhone))
-  line("Physician fax", safe(form.physicianFax))
+  fieldRow([
+    { label: "Physician phone", value: safe(form.physicianPhone) },
+    { label: "Physician fax", value: safe(form.physicianFax) },
+  ])
 
   // ---- Vaccines requested -------------------------------------------------
   block("Vaccinations Requested Today")
   if (blank) {
-    optionList(VACCINE_OPTIONS)
+    vaccineOptionRow(VACCINE_OPTIONS)
   } else {
     const requested: string[] = Array.isArray(form.vaccinesRequested) ? [...form.vaccinesRequested] : []
     const requestedDisplay = requested.map((v) =>
