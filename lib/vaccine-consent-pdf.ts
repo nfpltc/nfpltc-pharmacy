@@ -217,6 +217,17 @@ export async function createConsentPdf(
   const VALUE_X = 200
   const VALUE_W = PAGE_W - VALUE_X - MARGIN
 
+  // Every label used inside a fieldRow() — computed once so every column's
+  // write-in line/value starts at the exact same offset from its column's
+  // left edge, regardless of how wide that particular label's own text is.
+  // Without this, "Age:" (narrow) left far more room for its line than
+  // "Date of birth:" (wide) did, so the row didn't read as a uniform grid.
+  const FIELD_ROW_LABELS = [
+    "Date of birth", "Age", "Gender", "Race", "Ethnicity",
+    "Email", "Phone", "Physician phone", "Physician fax",
+  ]
+  const LABEL_SLOT_W = Math.max(...FIELD_ROW_LABELS.map((l) => bold.widthOfTextAtSize(`${l}:`, 10))) + 8
+
   const line = (label: string, value: any) => {
     if (blank) {
       if (y - 16 < 70) newPage()
@@ -254,20 +265,20 @@ export async function createConsentPdf(
       y -= 16
       fields.forEach((f, i) => {
         const x = LABEL_X + i * (colW + gap)
-        const labelText = `${f.label}:`
-        page.drawText(toWinAnsi(labelText), { x, y, size: 10, font: bold, color: INK })
-        const labelW = bold.widthOfTextAtSize(labelText, 10)
-        page.drawLine({ start: { x: x + labelW + 6, y: y - 2 }, end: { x: x + colW, y: y - 2 }, thickness: 0.75, color: RULE })
+        page.drawText(toWinAnsi(`${f.label}:`), { x, y, size: 10, font: bold, color: INK })
+        // Every column's write-in line starts at the same fixed offset
+        // (LABEL_SLOT_W), not at "however wide this particular label is" —
+        // that's what keeps the whole row reading as one uniform grid.
+        page.drawLine({ start: { x: x + LABEL_SLOT_W, y: y - 2 }, end: { x: x + colW, y: y - 2 }, thickness: 0.75, color: RULE })
       })
       return
     }
     // Wrap each column's value independently and advance by whichever column
     // needs the most lines, so a long value (e.g. an email) wraps onto a
     // second line instead of silently losing text past the column edge.
-    const labelWidths = fields.map((f) => bold.widthOfTextAtSize(`${f.label}:`, 10))
-    const wrappedCols = fields.map((f, i) => {
+    const wrappedCols = fields.map((f) => {
       const value = f.value === null || f.value === undefined || f.value === "" ? "-" : String(f.value)
-      return wrap(value, font, 10, colW - labelWidths[i] - 6)
+      return wrap(value, font, 10, colW - LABEL_SLOT_W)
     })
     const maxLines = Math.max(...wrappedCols.map((w) => w.length))
     if (y - (14 + (maxLines - 1) * 13) < 70) newPage()
@@ -276,7 +287,7 @@ export async function createConsentPdf(
       const x = LABEL_X + i * (colW + gap)
       page.drawText(toWinAnsi(`${f.label}:`), { x, y, size: 10, font: bold, color: INK })
       wrappedCols[i].forEach((ln, li) => {
-        page.drawText(toWinAnsi(ln), { x: x + labelWidths[i] + 6, y: y - li * 13, size: 10, font, color: INK })
+        page.drawText(toWinAnsi(ln), { x: x + LABEL_SLOT_W, y: y - li * 13, size: 10, font, color: INK })
       })
     })
     if (maxLines > 1) y -= (maxLines - 1) * 13
