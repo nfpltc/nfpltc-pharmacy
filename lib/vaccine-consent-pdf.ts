@@ -244,12 +244,16 @@ export async function createConsentPdf(
    */
   const fieldRow = (fields: { label: string; value?: any }[]) => {
     const gap = 16
-    const colW = (PAGE_W - MARGIN * 2 - gap * (fields.length - 1)) / fields.length
+    // Start at LABEL_X (not MARGIN) so column 1's label lines up with every
+    // full-width line() label above/below it, instead of sitting 10pt to its
+    // left. The row still ends flush at PAGE_W - MARGIN like everything else.
+    const rowW = PAGE_W - MARGIN - LABEL_X
+    const colW = (rowW - gap * (fields.length - 1)) / fields.length
     if (blank) {
       if (y - 16 < 70) newPage()
       y -= 16
       fields.forEach((f, i) => {
-        const x = MARGIN + i * (colW + gap)
+        const x = LABEL_X + i * (colW + gap)
         const labelText = `${f.label}:`
         page.drawText(toWinAnsi(labelText), { x, y, size: 10, font: bold, color: INK })
         const labelW = bold.widthOfTextAtSize(labelText, 10)
@@ -269,7 +273,7 @@ export async function createConsentPdf(
     if (y - (14 + (maxLines - 1) * 13) < 70) newPage()
     y -= 14
     fields.forEach((f, i) => {
-      const x = MARGIN + i * (colW + gap)
+      const x = LABEL_X + i * (colW + gap)
       page.drawText(toWinAnsi(`${f.label}:`), { x, y, size: 10, font: bold, color: INK })
       wrappedCols[i].forEach((ln, li) => {
         page.drawText(toWinAnsi(ln), { x: x + labelWidths[i] + 6, y: y - li * 13, size: 10, font, color: INK })
@@ -291,9 +295,12 @@ export async function createConsentPdf(
     if (y - 30 < 70) newPage()
     y -= 16
     const gap = 10
-    const colW = (PAGE_W - MARGIN * 2 - gap * (items.length - 1)) / items.length
+    // Same LABEL_X alignment as fieldRow — the checkbox lines up with where
+    // optionList() would have put one, and the row still ends at PAGE_W - MARGIN.
+    const rowW = PAGE_W - MARGIN - LABEL_X
+    const colW = (rowW - gap * (items.length - 1)) / items.length
     for (let i = 0; i < items.length; i++) {
-      const x = MARGIN + i * (colW + gap)
+      const x = LABEL_X + i * (colW + gap)
       checkbox(x, y - 1)
       page.drawText(toWinAnsi(items[i]), { x: x + 15, y, size: 9.5, font, color: INK })
       if (items[i] === "Other") {
