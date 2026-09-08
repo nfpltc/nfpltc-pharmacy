@@ -76,6 +76,7 @@ const schema = z
     // Section A
     firstName: z.string().min(1, "Required"),
     lastName: z.string().min(1, "Required"),
+    facilityName: z.string().optional(),
     age: z.string().min(1, "Required"),
     dob: z.string().min(1, "Required"),
     gender: optionalEnum(GENDER_OPTIONS),
@@ -549,6 +550,15 @@ export default function VaccineConsentPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <InputField label="First name" name="firstName" register={register} error={errors.firstName?.message} autoComplete="given-name" />
                 <InputField label="Last name" name="lastName" register={register} error={errors.lastName?.message} autoComplete="family-name" />
+                <div className="md:col-span-2">
+                  <InputField
+                    label="Facility name (if applicable)"
+                    name="facilityName"
+                    register={register}
+                    error={errors.facilityName?.message}
+                    placeholder="Leave blank if you don't live at an assisted living or care facility"
+                  />
+                </div>
                 <InputField label="Date of birth" type="date" name="dob" register={register} error={errors.dob?.message} />
                 <InputField label="Age" name="age" register={register} error={errors.age?.message} />
                 <SelectField label="Gender" name="gender" register={register} options={GENDER_OPTIONS} error={errors.gender?.message} />

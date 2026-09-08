@@ -100,6 +100,7 @@ export async function POST(req: Request) {
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;background:#f9fafb;padding:20px;border-radius:10px;">
         <h2 style="color:#047857;margin:0 0 8px;">New Vaccine Consent Submission</h2>
         <p style="margin:0 0 4px;"><b>Name:</b> ${safe(form.firstName)} ${safe(form.lastName)}</p>
+        ${form.facilityName ? `<p style="margin:0 0 4px;"><b>Facility:</b> ${safe(form.facilityName)}</p>` : ""}
         <p style="margin:0 0 4px;"><b>DOB:</b> ${safe(form.dob)} (age ${safe(form.age) || "—"})</p>
         <p style="margin:0 0 4px;"><b>Gender:</b> ${safe(form.gender) || "—"}</p>
         <p style="margin:0 0 4px;"><b>Phone:</b> ${safe(form.phone)}</p>
@@ -163,6 +164,7 @@ export async function POST(req: Request) {
           // Section A
           first_name: nullIfBlank(form.firstName),
           last_name: nullIfBlank(form.lastName),
+          facility_name: nullIfBlank(form.facilityName),
           dob: dateOrNull(form.dob),
           age: nullIfBlank(form.age),
           gender: nullIfBlank(form.gender),

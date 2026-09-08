@@ -266,6 +266,7 @@ export type VaccineConsentPayload = {
   // Section A
   firstName: string
   lastName: string
+  facilityName?: string
   age: string
   dob: string
   gender?: (typeof GENDER_OPTIONS)[number]

@@ -60,6 +60,11 @@ alter table public.vaccine_submissions add column if not exists physician_name  
 alter table public.vaccine_submissions add column if not exists physician_phone text;
 alter table public.vaccine_submissions add column if not exists physician_fax   text;
 
+-- Section A — facility/community name, for patients who reside at an
+-- assisted living or long-term care facility rather than a private home.
+-- Optional: most walk-in patients leave this blank.
+alter table public.vaccine_submissions add column if not exists facility_name text;
+
 -- Vaccines requested. `vaccine_type` is kept as a human-readable comma list so
 -- the existing admin table/search keeps working; the array is the queryable one.
 alter table public.vaccine_submissions add column if not exists vaccines_requested text[];
