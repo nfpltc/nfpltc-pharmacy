@@ -9,14 +9,19 @@ import Link from "next/link"
 import { supabaseAdmin } from "@/lib/supabaseAdmin"
 import type { TeamMember } from "@/lib/team-members"
 
-export const revalidate = 60
+// Revalidation is configured on app/about/page.tsx (the actual route
+// segment), not here — a `revalidate` export in a plain component like this
+// one is silently ignored by Next.js.
 
 async function getVisibleTeam(): Promise<TeamMember[]> {
-  const { data } = await supabaseAdmin()
+  const { data, error } = await supabaseAdmin()
     .from("team_members")
     .select("*")
     .eq("visible", true)
     .order("display_order", { ascending: true })
+  // A query error would otherwise look identical to "no team members yet"
+  // (the section just quietly disappears) — log it so that's diagnosable.
+  if (error) console.error("team-section: failed to load team_members:", error.message)
   return data || []
 }
 
