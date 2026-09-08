@@ -15,6 +15,7 @@ const PATH_PAGE_MAP: { prefix: string; key: string }[] = [
   { prefix: "/admin/jobs", key: "jobs" },
   { prefix: "/admin/candidates", key: "jobs" }, // candidates merged into jobs page
   { prefix: "/admin/blogs", key: "blog" },
+  { prefix: "/admin/team", key: "team" },
   { prefix: "/admin/customers", key: "crm" },
   { prefix: "/admin/statements", key: "statements" },
   { prefix: "/admin/medication-tasks", key: "medication-tasks" },
