@@ -29,7 +29,13 @@ create table if not exists public.team_members (
   tagline        text,              -- short caps phrase shown on the bio page
 
   display_order  integer not null default 0,
-  visible        boolean not null default true
+  visible        boolean not null default true,
+  -- Independent from `visible`: a member can appear in the About page
+  -- carousel (name/photo/short bio) without having a public /team/<slug>
+  -- page — e.g. someone who's listed for transparency but hasn't written
+  -- a bio yet, or doesn't want one linkable. Defaults true so existing
+  -- rows keep working exactly as before this column existed.
+  show_bio_page  boolean not null default true
 );
 
 alter table public.team_members add column if not exists credentials    text;
@@ -40,6 +46,7 @@ alter table public.team_members add column if not exists expertise      text[] n
 alter table public.team_members add column if not exists tagline        text;
 alter table public.team_members add column if not exists display_order  integer not null default 0;
 alter table public.team_members add column if not exists visible        boolean not null default true;
+alter table public.team_members add column if not exists show_bio_page  boolean not null default true;
 
 create unique index if not exists team_members_slug_idx on public.team_members (slug);
 create index if not exists team_members_order_idx on public.team_members (display_order) where visible = true;

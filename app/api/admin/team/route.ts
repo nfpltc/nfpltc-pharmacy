@@ -133,6 +133,7 @@ export async function POST(req: NextRequest) {
       photo_url,
       display_order,
       visible: form.get("visible") !== "false",
+      show_bio_page: form.get("show_bio_page") !== "false",
     }
 
     const { data, error } = await supabaseAdmin().from("team_members").insert(payload).select().single()
@@ -164,6 +165,7 @@ export async function PATCH(req: NextRequest) {
     if (form.has("tagline")) updates.tagline = String(form.get("tagline") || "").trim() || null
     if (form.has("expertise")) updates.expertise = parseExpertise(form.get("expertise"))
     if (form.has("visible")) updates.visible = form.get("visible") !== "false"
+    if (form.has("show_bio_page")) updates.show_bio_page = form.get("show_bio_page") !== "false"
     if (form.has("display_order")) {
       const n = Number(form.get("display_order"))
       if (Number.isFinite(n)) updates.display_order = n

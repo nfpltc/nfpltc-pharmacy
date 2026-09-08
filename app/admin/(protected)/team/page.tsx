@@ -5,7 +5,7 @@ import type { TeamMember } from "@/lib/team-members"
 
 const emptyForm = {
   name: "", credentials: "", role: "", slug: "",
-  short_bio: "", long_bio: "", expertise: "", tagline: "", visible: true,
+  short_bio: "", long_bio: "", expertise: "", tagline: "", visible: true, show_bio_page: true,
 }
 
 export default function AdminTeamPage() {
@@ -44,6 +44,9 @@ export default function AdminTeamPage() {
       name: m.name, credentials: m.credentials || "", role: m.role, slug: m.slug,
       short_bio: m.short_bio || "", long_bio: m.long_bio || "",
       expertise: (m.expertise || []).join("\n"), tagline: m.tagline || "", visible: m.visible,
+      // Rows saved before this column existed won't have it — default to on
+      // (its own not-null default) rather than treating undefined as off.
+      show_bio_page: m.show_bio_page !== false,
     })
     setPhotoFile(null); setPhotoPreview(m.photo_url || null)
     setShowForm(true)
@@ -153,10 +156,17 @@ export default function AdminTeamPage() {
                     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${m.visible ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
                       {m.visible ? "Visible" : "Hidden"}
                     </span>
+                    {m.visible && m.show_bio_page === false && (
+                      <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700" title="Listed on the About page, but /team/&lt;slug&gt; is not accessible">
+                        No bio page
+                      </span>
+                    )}
                   </div>
                   <p className="mt-1 text-sm text-emerald-700/80">{m.role}</p>
                   {m.short_bio && <p className="mt-1 text-sm text-gray-500 line-clamp-1">{m.short_bio}</p>}
-                  <p className="mt-2 text-xs text-gray-400">/team/{m.slug}</p>
+                  <p className="mt-2 text-xs text-gray-400">
+                    {m.show_bio_page === false ? "No public bio page" : `/team/${m.slug}`}
+                  </p>
                 </div>
                 <div className="flex flex-shrink-0 items-center gap-1">
                   <button onClick={() => move(i, -1)} disabled={i === 0 || !!reordering} className="rounded-lg p-2 text-gray-400 hover:bg-gray-50 hover:text-gray-700 disabled:opacity-30" title="Move up"><ArrowUp className="h-4 w-4" /></button>
@@ -165,7 +175,7 @@ export default function AdminTeamPage() {
                     {m.visible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                   </button>
                   <button onClick={() => openEdit(m)} className="rounded-lg p-2 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600" title="Edit"><Pencil className="h-4 w-4" /></button>
-                  {m.visible && <a href={`/team/${m.slug}`} target="_blank" className="rounded-lg p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600" title="View bio page"><ExternalLink className="h-4 w-4" /></a>}
+                  {m.visible && m.show_bio_page !== false && <a href={`/team/${m.slug}`} target="_blank" className="rounded-lg p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600" title="View bio page"><ExternalLink className="h-4 w-4" /></a>}
                   <button onClick={() => handleDelete(m)} className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600" title="Remove"><Trash2 className="h-4 w-4" /></button>
                 </div>
               </div>
@@ -255,10 +265,19 @@ export default function AdminTeamPage() {
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={form.visible} onChange={e => setForm({ ...form, visible: e.target.checked })} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
-                Show on public site
-              </label>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={form.visible} onChange={e => setForm({ ...form, visible: e.target.checked })} className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                  Show on public site
+                </label>
+                <label className={`flex items-center gap-2 text-sm ${!form.visible ? "opacity-40" : ""}`}>
+                  <input type="checkbox" checked={form.show_bio_page} disabled={!form.visible}
+                    onChange={e => setForm({ ...form, show_bio_page: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300 text-emerald-600" />
+                  Have a public bio page (/team/&lt;slug&gt;)
+                  <span className="font-normal text-gray-400">— uncheck to list them on the About page without a clickable bio</span>
+                </label>
+              </div>
 
               <div className="flex justify-end gap-3 border-t pt-4">
                 <button type="button" onClick={() => { setShowForm(false); setEditing(null) }} className="rounded-lg px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>

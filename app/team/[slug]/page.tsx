@@ -19,6 +19,10 @@ async function getMember(slug: string): Promise<TeamMember | null> {
     .select("*")
     .eq("slug", slug)
     .eq("visible", true)
+    // Enforced here, not just by hiding the "Read full bio" link — someone
+    // who has (or guesses) the URL directly should still get a 404 when the
+    // admin has turned this person's bio page off.
+    .eq("show_bio_page", true)
     .maybeSingle()
   return data
 }
@@ -28,6 +32,7 @@ async function getOtherMembers(excludeId: string): Promise<TeamMember[]> {
     .from("team_members")
     .select("*")
     .eq("visible", true)
+    .eq("show_bio_page", true) // don't link to pages that 404
     .neq("id", excludeId)
     .order("display_order", { ascending: true })
     .limit(3)
@@ -80,8 +85,11 @@ export default async function TeamMemberPage({ params }: { params: Promise<{ slu
               </div>
             )}
             <div>
-              <p className="text-sm font-medium uppercase tracking-wide text-white/70">
-                {member.role}{member.credentials ? ` · ${member.credentials}` : ""}
+              <p className="text-sm font-medium tracking-wide text-white/70">
+                {/* Only the role is styled uppercase — credentials stay exactly as
+                   typed (e.g. "PharmD, MS"), matching the admin edit form. */}
+                <span className="uppercase">{member.role}</span>
+                {member.credentials ? ` · ${member.credentials}` : ""}
               </p>
               <h1 className="mt-1 text-3xl font-semibold text-white md:text-4xl lg:text-5xl">{member.name}</h1>
               {member.short_bio && <p className="mt-3 max-w-xl text-white/90">{member.short_bio}</p>}
