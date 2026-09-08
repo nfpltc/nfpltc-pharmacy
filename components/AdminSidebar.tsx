@@ -15,6 +15,7 @@ const NAV = [
   { href: "/admin/contacts",         label: "Contacts",         icon: MessageSquare,   key: "contacts" },
   { href: "/admin/jobs",             label: "Jobs & Candidates", icon: Briefcase,       key: "jobs" },
   { href: "/admin/blogs",            label: "Blog",             icon: BookOpen,        key: "blog" },
+  { href: "/admin/team",             label: "Team",             icon: Users,           key: "team" },
   { href: "/admin/social",           label: "Social",           icon: Share2,          key: "social" },
   { href: "/admin/customers",        label: "Customers",        icon: UsersRound,      key: "crm" },
   { href: "/admin/statements",       label: "Statements",       icon: FileStack,       key: "statements" },

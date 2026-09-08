@@ -1,17 +1,32 @@
-"use client"
+// components/team-section.tsx
+//
+// Server component — was a hardcoded client array before the admin Team
+// Members page existed (see app/admin/(protected)/team). Now it reads the
+// same team_members table the admin page writes to, so adding someone in
+// the admin panel is the only step needed to get them on this page.
 
-type Member = {
-  name: string
-  title: string
+import Link from "next/link"
+import { supabaseAdmin } from "@/lib/supabaseAdmin"
+import type { TeamMember } from "@/lib/team-members"
+
+export const revalidate = 60
+
+async function getVisibleTeam(): Promise<TeamMember[]> {
+  const { data } = await supabaseAdmin()
+    .from("team_members")
+    .select("*")
+    .eq("visible", true)
+    .order("display_order", { ascending: true })
+  return data || []
 }
 
-export function TeamSection() {
-  const team: Member[] = [
-    { name: "Sneha Krishnakumar PharmD, MS", title: "Pharmacy Manager" },
-    { name: "Alexis Wing PharmD, MBA", title: "Pharmacist" },
-    { name: "Angela Squarcia, RPH", title: "Pharmacist" },
-    { name: "Suman Raj Medikondu, MBA", title: "Manager, Business Operations Analytics" },
-  ]
+function initials(name: string) {
+  return name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()
+}
+
+export async function TeamSection() {
+  const team = await getVisibleTeam()
+  if (team.length === 0) return null
 
   return (
     <section id="team" className="bg-white py-16 md:py-20">
@@ -26,16 +41,41 @@ export function TeamSection() {
           </p>
         </div>
 
-        {/* Right: 2x2 simple cards (name + title under name) */}
+        {/* Right: cards with photo + name + title, linking to each person's bio page */}
         <div className="grid gap-6 sm:grid-cols-2">
           {team.map((m) => (
-            <article
-              key={m.name}
-              className="rounded-2xl border border-black/5 bg-white p-6 shadow-sm transition hover:shadow-md"
+            <Link
+              key={m.id}
+              href={`/team/${m.slug}`}
+              className="group rounded-2xl border border-black/5 bg-white p-6 shadow-sm transition hover:shadow-md"
             >
-              <h3 className="text-lg font-semibold text-emerald-900">{m.name}</h3>
-              <p className="mt-1 text-sm text-emerald-700/80">{m.title}</p>
-            </article>
+              <div className="flex items-center gap-4">
+                {m.photo_url ? (
+                  <img
+                    src={m.photo_url}
+                    alt={m.name}
+                    className="h-14 w-14 flex-shrink-0 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full bg-emerald-50 text-sm font-semibold text-emerald-700">
+                    {initials(m.name)}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <h3 className="text-lg font-semibold text-emerald-900 group-hover:text-emerald-700">
+                    {m.name}
+                    {m.credentials ? `, ${m.credentials}` : ""}
+                  </h3>
+                  <p className="mt-1 text-sm text-emerald-700/80">{m.role}</p>
+                </div>
+              </div>
+              {m.short_bio && (
+                <p className="mt-3 text-sm text-gray-500 line-clamp-2">{m.short_bio}</p>
+              )}
+              <span className="mt-3 inline-block text-sm font-medium text-emerald-600 group-hover:underline">
+                Read full bio →
+              </span>
+            </Link>
           ))}
         </div>
       </div>
