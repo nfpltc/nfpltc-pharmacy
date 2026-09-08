@@ -6,7 +6,7 @@ import { BLOG_TOPICS, BlogTopic } from "./blog-topics"
 
 // ─── Groq client (REST, no SDK dependency) ─────────────────────────────────
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-const GROQ_MODEL = "llama-3.3-70b-versatile"   // Groq's best general-purpose model on free tier
+const GROQ_MODEL = "openai/gpt-oss-120b"   // Groq's best general-purpose model on free tier
 
 // ─── Safety rules baked into every system prompt ──────────────────────────
 const SYSTEM_PROMPT = `You are writing a blog post for North Falmouth Pharmacy ("NFPLTC"), a long-term care pharmacy on Cape Cod, Massachusetts. Our readers are patients, their adult children, caregivers, and facility staff.

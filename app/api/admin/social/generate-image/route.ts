@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-const GROQ_MODEL = "llama-3.3-70b-versatile"
+const GROQ_MODEL = "openai/gpt-oss-120b"
 const FAL_API_KEY = process.env.FAL_API_KEY || process.env.FAL_AI_API_KEY
 
 function admin() {

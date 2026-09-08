@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        model: "openai/gpt-oss-120b",
         messages: [
           { role: "system", content: "You are a professional pharmacy assistant. Rewrite the following customer reply to be warm, professional, concise, and helpful. Keep the same meaning but improve the tone and clarity. Return ONLY the rewritten message, nothing else." },
           { role: "user", content: draft },

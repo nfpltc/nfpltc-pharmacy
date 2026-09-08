@@ -3,14 +3,19 @@
 // components/TeamCarousel.tsx
 //
 // The interactive half of the Our Team section — a single large "spotlight"
-// card for one team member at a time, with prev/next arrows and dot paging
-// to browse the rest. Split out from team-section.tsx (a server component)
-// because carousel state needs a client component; the data fetch stays
-// server-side and the result is just passed in as a prop.
+// card for one team member at a time: auto-advances on a timer, and can be
+// paged manually via the prev/next buttons, the dots, a touch swipe, or by
+// hovering (which pauses autoplay so a visitor mid-read doesn't get yanked
+// to the next person). Split out from team-section.tsx (a server component)
+// because all of that needs client state; the data fetch stays server-side
+// and the result is just passed in as a prop.
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import type { TeamMember } from "@/lib/team-members"
+
+const AUTOPLAY_MS = 6000
+const SWIPE_THRESHOLD_PX = 50
 
 function initials(name: string) {
   return name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()
@@ -25,20 +30,65 @@ function splitName(name: string): [string, string | null] {
 
 export default function TeamCarousel({ members }: { members: TeamMember[] }) {
   const [index, setIndex] = useState(0)
-  if (members.length === 0) return null
+  const [paused, setPaused] = useState(false)
+  const touchStartX = useRef<number | null>(null)
+  const didSwipeRef = useRef(false)
 
-  const m = members[index % members.length]
+  const count = members.length
+  const canPage = count > 1
+  const go = (dir: -1 | 1) => setIndex((i) => (i + dir + count) % count)
+
+  // Auto-advance, restarting the clock on every change (including manual
+  // ones) so a swipe/click doesn't get immediately overridden by a stale
+  // timer. Paused on hover so reading a bio doesn't get interrupted.
+  useEffect(() => {
+    if (!canPage || paused) return
+    const id = setInterval(() => setIndex((i) => (i + 1) % count), AUTOPLAY_MS)
+    return () => clearInterval(id)
+  }, [canPage, paused, index, count])
+
+  if (count === 0) return null
+
+  const m = members[index % count]
   const [firstName, lastName] = splitName(m.name)
-  const canPage = members.length > 1
-  const go = (dir: -1 | 1) => setIndex((i) => (i + dir + members.length) % members.length)
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX
+    didSwipeRef.current = false
+  }
+  const onTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current == null || !canPage) return
+    const dx = e.changedTouches[0].clientX - touchStartX.current
+    touchStartX.current = null
+    if (Math.abs(dx) > SWIPE_THRESHOLD_PX) {
+      didSwipeRef.current = true
+      go(dx < 0 ? 1 : -1)
+    }
+  }
+  // A swipe that crosses the threshold shouldn't also fire the photo/button
+  // link underneath it — swallow the one click that follows a real swipe.
+  const onClickCapture = (e: React.MouseEvent) => {
+    if (didSwipeRef.current) {
+      e.preventDefault()
+      e.stopPropagation()
+      didSwipeRef.current = false
+    }
+  }
 
   return (
-    <div className="relative">
-      <div className="grid overflow-hidden rounded-3xl border border-black/5 bg-white shadow-lg md:grid-cols-2">
+    <div
+      className="relative"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+      onClickCapture={onClickCapture}
+    >
+      <div className="grid overflow-hidden rounded-3xl border border-black/5 bg-white shadow-lg md:min-h-[560px] md:grid-cols-2">
         {/* Left: intro copy */}
-        <div className="flex flex-col justify-center gap-4 p-8 md:p-12">
+        <div className="flex flex-col justify-center gap-5 p-8 md:p-14">
           <span className="text-xs font-semibold uppercase tracking-widest text-emerald-600">Introducing</span>
-          <h3 className="text-3xl font-extrabold leading-tight text-gray-900 md:text-4xl">
+          <h3 className="text-4xl font-extrabold leading-tight text-gray-900 md:text-5xl">
             {firstName}
             {lastName && <><br /><span className="text-emerald-600">{lastName}.</span></>}
           </h3>
@@ -46,9 +96,9 @@ export default function TeamCarousel({ members }: { members: TeamMember[] }) {
             {m.role}
             {m.credentials && <span className="text-emerald-600"> · {m.credentials}</span>}
           </p>
-          {m.short_bio && <p className="text-gray-600">{m.short_bio}</p>}
+          {m.short_bio && <p className="text-base leading-relaxed text-gray-600">{m.short_bio}</p>}
 
-          <div className="mt-2 flex flex-wrap items-end justify-between gap-4 border-t border-gray-100 pt-4">
+          <div className="mt-2 flex flex-wrap items-end justify-between gap-4 border-t border-gray-100 pt-5">
             {m.tagline ? (
               <p className="text-xs font-semibold uppercase leading-relaxed tracking-widest text-gray-800">
                 {m.tagline}
@@ -63,8 +113,11 @@ export default function TeamCarousel({ members }: { members: TeamMember[] }) {
           </div>
         </div>
 
-        {/* Right: large photo with a caption overlay, same tap target as the button above */}
-        <Link href={`/team/${m.slug}`} className="group relative block min-h-[320px] overflow-hidden bg-emerald-50 md:min-h-full">
+        {/* Right: large photo — object-cover fills this box regardless of the
+           source photo's own aspect ratio, and the md:min-h-[560px] above
+           (inherited via grid row stretch) is what makes it consistently
+           large rather than shrinking to whatever the left column needs. */}
+        <Link href={`/team/${m.slug}`} className="group relative block min-h-[380px] overflow-hidden bg-emerald-50 md:min-h-full">
           {m.photo_url ? (
             <img
               src={m.photo_url}

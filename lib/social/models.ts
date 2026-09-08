@@ -1,10 +1,14 @@
 // Catalog of Groq models we know about: what they can do and what they cost.
 //
 // Groq retires model ids over time (llama-4-scout was decommissioned
-// 2026-07-17), which used to break the Social editor until someone changed the
-// code. The admin now picks the model in the UI, so a retirement is a dropdown
-// change instead of a deploy. This table only supplies the labels/pricing —
-// the live list of ids always comes from the account's /v1/models.
+// 2026-07-17; llama-3.3-70b-versatile moved to Enterprise-only "Contact
+// Sales" pricing around 2026-08-26, which is what silently broke every
+// Groq-backed feature across this app — not just this picker, since most of
+// them hardcode a model instead of reading from here), which used to break
+// the Social editor until someone changed the code. The admin now picks the
+// model in the UI, so a retirement here is a dropdown change instead of a
+// deploy. This table only supplies the labels/pricing — the live list of ids
+// always comes from the account's /v1/models.
 
 export type ModelInfo = {
   id: string
@@ -18,10 +22,13 @@ export type ModelInfo = {
 // Prices from groq.com/pricing. Update alongside Groq's pricing page.
 export const MODEL_CATALOG: ModelInfo[] = [
   { id: "qwen/qwen3.6-27b",        label: "Qwen 3.6 27B",       vision: true,  inPer1M: 0.60,  outPer1M: 3.00, note: "Multimodal — required for image posts" },
-  { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B",      vision: false, inPer1M: 0.59,  outPer1M: 0.79, note: "Text only" },
   { id: "openai/gpt-oss-120b",     label: "GPT-OSS 120B",       vision: false, inPer1M: 0.15,  outPer1M: 0.60, note: "Text only" },
   { id: "openai/gpt-oss-20b",      label: "GPT-OSS 20B",        vision: false, inPer1M: 0.075, outPer1M: 0.30, note: "Text only" },
   { id: "llama-3.1-8b-instant",    label: "Llama 3.1 8B",       vision: false, inPer1M: 0.05,  outPer1M: 0.08, note: "Text only — cheapest" },
+  // llama-3.3-70b-versatile removed ~2026-08-26 — Groq moved it to
+  // Enterprise-only "Contact Sales" pricing, so a self-serve key can no
+  // longer call it. Leaving it listed here would offer a dropdown option
+  // that fails every time it's picked.
 ]
 
 export const findModel = (id: string): ModelInfo | undefined =>
