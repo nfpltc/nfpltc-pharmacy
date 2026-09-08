@@ -39,7 +39,11 @@ function initials(name: string) {
 
 function TeamPhoto({ m }: { m: TeamMember }) {
   return (
-    <div className="relative h-32 w-32 flex-shrink-0 overflow-hidden rounded-full ring-4 ring-white shadow-md transition-transform duration-300 ease-out group-hover:scale-110 sm:h-36 sm:w-36">
+    // scale-150 genuinely overlaps neighboring grid cells when it grows —
+    // that's intentional (no layout jump, the grid doesn't reflow), but it
+    // means the hovered card needs to paint above its siblings, which is
+    // what the wrapper's `hover:z-20` (below) is for.
+    <div className="relative h-32 w-32 flex-shrink-0 overflow-hidden rounded-full ring-4 ring-white shadow-md transition-transform duration-300 ease-out group-hover:scale-150 group-hover:shadow-xl sm:h-36 sm:w-36">
       {m.photo_url ? (
         <img src={m.photo_url} alt={m.name} className="h-full w-full object-cover" />
       ) : (
@@ -69,7 +73,7 @@ export async function TeamSection() {
         <div className="mt-12 grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-3 sm:gap-x-8 md:grid-cols-4">
           {team.map((m) =>
             m.show_bio_page ? (
-              <Link key={m.id} href={`/team/${m.slug}`} className="group flex flex-col items-center text-center">
+              <Link key={m.id} href={`/team/${m.slug}`} className="group relative z-0 flex flex-col items-center text-center hover:z-20">
                 <TeamPhoto m={m} />
                 <h3 className="mt-4 text-sm font-semibold text-emerald-900 group-hover:text-emerald-700 sm:text-base">
                   {m.name}
@@ -78,7 +82,7 @@ export async function TeamSection() {
               </Link>
             ) : (
               // No bio page for this person — same look, just not a link.
-              <div key={m.id} className="group flex flex-col items-center text-center">
+              <div key={m.id} className="group relative z-0 flex flex-col items-center text-center hover:z-20">
                 <TeamPhoto m={m} />
                 <h3 className="mt-4 text-sm font-semibold text-emerald-900 sm:text-base">{m.name}</h3>
                 <p className="text-xs text-emerald-700/70 sm:text-sm">{m.role}</p>
