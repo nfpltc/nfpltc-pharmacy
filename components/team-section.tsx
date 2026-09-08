@@ -4,10 +4,14 @@
 // Members page existed (see app/admin/(protected)/team). Now it reads the
 // same team_members table the admin page writes to, so adding someone in
 // the admin panel is the only step needed to get them on this page.
+//
+// Data fetching stays here (server-side, no client bundle cost); the actual
+// spotlight-card + prev/next browsing UI is TeamCarousel, a client component,
+// since paging state can't live in a server component.
 
-import Link from "next/link"
 import { supabaseAdmin } from "@/lib/supabaseAdmin"
 import type { TeamMember } from "@/lib/team-members"
+import TeamCarousel from "@/components/TeamCarousel"
 
 // Revalidation is configured on app/about/page.tsx (the actual route
 // segment), not here — a `revalidate` export in a plain component like this
@@ -25,63 +29,24 @@ async function getVisibleTeam(): Promise<TeamMember[]> {
   return data || []
 }
 
-function initials(name: string) {
-  return name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()
-}
-
 export async function TeamSection() {
   const team = await getVisibleTeam()
   if (team.length === 0) return null
 
   return (
     <section id="team" className="bg-white py-16 md:py-20">
-      <div className="mx-auto grid max-w-6xl gap-8 px-6 md:grid-cols-[360px_1fr]">
-        {/* Left intro panel */}
-        <div className="rounded-3xl bg-emerald-600 p-8 text-white md:sticky md:top-24 md:self-start">
-          <h2 className="text-3xl font-extrabold tracking-tight">Our Team</h2>
-          <p className="mt-4 text-white/90">
-            Meet the people behind your care. Our pharmacists and operations
-            team coordinate closely with families and facilities to keep
-            medication management safe and simple.
-          </p>
-        </div>
+      <div className="mx-auto max-w-5xl px-6">
+        <span className="text-xs font-semibold uppercase tracking-widest text-emerald-600">Who works here</span>
+        <h2 className="mt-2 text-3xl font-bold tracking-tight text-gray-900 md:text-4xl">
+          The people who care for you.
+        </h2>
+        <p className="mt-3 max-w-2xl text-gray-500">
+          Meet the pharmacists and operations team behind your care.
+          {team.length > 1 ? " Tap the arrows or a card to meet everyone." : " Tap the card to read their full bio."}
+        </p>
 
-        {/* Right: cards with photo + name + title, linking to each person's bio page */}
-        <div className="grid gap-6 sm:grid-cols-2">
-          {team.map((m) => (
-            <Link
-              key={m.id}
-              href={`/team/${m.slug}`}
-              className="group rounded-2xl border border-black/5 bg-white p-6 shadow-sm transition hover:shadow-md"
-            >
-              <div className="flex items-center gap-4">
-                {m.photo_url ? (
-                  <img
-                    src={m.photo_url}
-                    alt={m.name}
-                    className="h-14 w-14 flex-shrink-0 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full bg-emerald-50 text-sm font-semibold text-emerald-700">
-                    {initials(m.name)}
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <h3 className="text-lg font-semibold text-emerald-900 group-hover:text-emerald-700">
-                    {m.name}
-                    {m.credentials ? `, ${m.credentials}` : ""}
-                  </h3>
-                  <p className="mt-1 text-sm text-emerald-700/80">{m.role}</p>
-                </div>
-              </div>
-              {m.short_bio && (
-                <p className="mt-3 text-sm text-gray-500 line-clamp-2">{m.short_bio}</p>
-              )}
-              <span className="mt-3 inline-block text-sm font-medium text-emerald-600 group-hover:underline">
-                Read full bio →
-              </span>
-            </Link>
-          ))}
+        <div className="mt-10">
+          <TeamCarousel members={team} />
         </div>
       </div>
     </section>
