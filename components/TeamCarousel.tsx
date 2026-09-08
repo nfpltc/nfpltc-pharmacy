@@ -51,6 +51,9 @@ export default function TeamCarousel({ members }: { members: TeamMember[] }) {
 
   const m = members[index % count]
   const [firstName, lastName] = splitName(m.name)
+  // Only a member with a bio page gets a clickable photo — otherwise it's
+  // just a plain div (no href, nothing to spread {href} onto).
+  const PhotoTag = m.show_bio_page ? Link : "div"
 
   const onTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX
@@ -92,8 +95,10 @@ export default function TeamCarousel({ members }: { members: TeamMember[] }) {
             {firstName}
             {lastName && <><br /><span className="text-emerald-600">{lastName}.</span></>}
           </h3>
-          <p className="text-sm font-medium uppercase tracking-wide text-gray-500">
-            {m.role}
+          <p className="text-sm font-medium tracking-wide text-gray-500">
+            <span className="uppercase">{m.role}</span>
+            {/* Credentials are typed case (e.g. "PharmD, MS") — not forced uppercase,
+               so this matches exactly what shows in the admin edit form. */}
             {m.credentials && <span className="text-emerald-600"> · {m.credentials}</span>}
           </p>
           {m.short_bio && <p className="text-base leading-relaxed text-gray-600">{m.short_bio}</p>}
@@ -104,20 +109,27 @@ export default function TeamCarousel({ members }: { members: TeamMember[] }) {
                 {m.tagline}
               </p>
             ) : <span />}
-            <Link
-              href={`/team/${m.slug}`}
-              className="inline-flex flex-shrink-0 items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
-            >
-              Read full bio →
-            </Link>
+            {m.show_bio_page && (
+              <Link
+                href={`/team/${m.slug}`}
+                className="inline-flex flex-shrink-0 items-center gap-2 rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
+              >
+                Read full bio →
+              </Link>
+            )}
           </div>
         </div>
 
         {/* Right: large photo — object-cover fills this box regardless of the
            source photo's own aspect ratio, and the md:min-h-[560px] above
            (inherited via grid row stretch) is what makes it consistently
-           large rather than shrinking to whatever the left column needs. */}
-        <Link href={`/team/${m.slug}`} className="group relative block min-h-[380px] overflow-hidden bg-emerald-50 md:min-h-full">
+           large rather than shrinking to whatever the left column needs.
+           A member without a bio page (show_bio_page: false) gets a plain
+           div here instead of a Link — nothing to click through to. */}
+        <PhotoTag
+          {...(m.show_bio_page ? { href: `/team/${m.slug}` } : {})}
+          className="group relative block min-h-[380px] overflow-hidden bg-emerald-50 md:min-h-full"
+        >
           {m.photo_url ? (
             <img
               src={m.photo_url}
@@ -135,7 +147,7 @@ export default function TeamCarousel({ members }: { members: TeamMember[] }) {
               {m.name}{m.credentials && <span className="font-normal text-white/70"> {m.credentials}</span>}
             </p>
           </div>
-        </Link>
+        </PhotoTag>
       </div>
 
       {canPage && (

@@ -20,6 +20,10 @@ export type TeamMember = {
   tagline: string | null
   display_order: number
   visible: boolean
+  // Independent from `visible` — see supabase/team_members.sql. false means
+  // "show this person in the About page carousel, but they have no public
+  // /team/<slug> page."
+  show_bio_page: boolean
 }
 
 /** name → URL-safe slug, same rules as the blog's slugify(). */
