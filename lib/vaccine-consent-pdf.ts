@@ -428,6 +428,7 @@ export async function createConsentPdf(
   // address, physician name) keep their own row so they have room to wrap.
   block("Section A - Patient Information")
   line("Name", `${safe(form.firstName)} ${safe(form.lastName)}`.trim())
+  line("Facility name (if applicable)", safe(form.facilityName))
   fieldRow([
     { label: "Date of birth", value: safe(form.dob) },
     { label: "Age", value: safe(form.age) },

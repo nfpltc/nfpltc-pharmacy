@@ -17,6 +17,7 @@ interface Vaccine {
   id: string
   first_name: string
   last_name: string
+  facility_name: string | null
   dob: string
   email: string
   phone: string
@@ -41,6 +42,7 @@ const VACCINE_SECTIONS: DetailSection[] = [
     fields: [
       { key: "first_name", label: "First Name" },
       { key: "last_name",  label: "Last Name" },
+      { key: "facility_name", label: "Facility Name" },
       { key: "dob",        label: "Date of Birth" },
       { key: "age",        label: "Age" },
       { key: "gender",     label: "Gender" },
@@ -180,6 +182,7 @@ export default function AdminVaccinesPage() {
 
   const list = items.filter(s => (filter === "all" || s.status === filter) &&
     (!search || `${s.first_name} ${s.last_name}`.toLowerCase().includes(search.toLowerCase()) ||
+      (s.facility_name || "").toLowerCase().includes(search.toLowerCase()) ||
       (s.vaccine_type || "").toLowerCase().includes(search.toLowerCase()) ||
       (s.email || "").toLowerCase().includes(search.toLowerCase())))
 
@@ -224,6 +227,7 @@ export default function AdminVaccinesPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 flex-wrap">
                     <p className="font-medium text-gray-900">{s.first_name} {s.last_name}</p>
+                    {s.facility_name && <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium" title="Facility resident">🏥 {s.facility_name}</span>}
                     {s.vaccine_type && <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">{s.vaccine_type}</span>}
                     {s.review_flags?.length ? <span className="px-2 py-1 bg-amber-100 text-amber-800 rounded text-xs font-medium" title={s.review_flags.join(" · ")}>⚠ Needs review ({s.review_flags.length})</span> : null}
                     {editId === s.id ? <select value={editForm.status} onChange={e => setEditForm({ ...editForm, status: e.target.value })} className="text-sm border rounded px-2 py-1">
