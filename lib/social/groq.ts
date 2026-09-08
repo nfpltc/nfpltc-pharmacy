@@ -1,6 +1,6 @@
 // Thin Groq chat helper (REST, no SDK) + a tolerant JSON parser.
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-const GROQ_MODEL = "llama-3.3-70b-versatile"
+const GROQ_MODEL = "openai/gpt-oss-120b"
 
 export async function groqChat(
   system: string,

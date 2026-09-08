@@ -2,7 +2,7 @@
 // Only knows general pharmacy info — NO patient data, NO PHI.
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-const GROQ_MODEL = "llama-3.3-70b-versatile"
+const GROQ_MODEL = "openai/gpt-oss-120b"
 
 const SYSTEM_PROMPT = `You are a friendly AI assistant for North Falmouth Pharmacy on Cape Cod.
 
@@ -73,6 +73,12 @@ export async function generateChatResponse(
     }
 
     if (!resp.ok) {
+      // A bad model id (Groq retires/regates them without warning — see
+      // lib/social/models.ts) and an expired key both land here looking
+      // identical to the visitor. Log the real body so the cause shows up
+      // in Vercel's function logs instead of only "something failed".
+      const errBody = await resp.text().catch(() => "")
+      console.error(`chat-ai: Groq request failed (${resp.status}):`, errBody)
       return { response: "I'm having trouble right now. Please call us at (508) 564-4459 for immediate help.", shouldEscalate: false }
     }
 
@@ -83,7 +89,8 @@ export async function generateChatResponse(
     const shouldEscalate = /speak with|talk to (a |our |the )?(person|team|pharmacist|staff|someone)|call us|contact us directly/i.test(text)
 
     return { response: text, shouldEscalate }
-  } catch {
+  } catch (err) {
+    console.error("chat-ai: request to Groq threw:", err)
     return { response: "I'm having trouble connecting. Please call us at (508) 564-4459.", shouldEscalate: false }
   }
 }

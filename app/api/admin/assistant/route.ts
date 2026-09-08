@@ -10,7 +10,7 @@ const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 // tends to emit tool calls as plain text instead of using the tool-call API,
 // so we use 70b and keep token usage low (compact schemas, short history) to
 // stay under the 12,000 TPM free-tier limit.
-const GROQ_MODEL = "llama-3.3-70b-versatile"
+const GROQ_MODEL = "openai/gpt-oss-120b"
 
 const SYSTEM_PROMPT = `You are an internal admin assistant for North Falmouth Pharmacy. You answer questions about customers, statements, and form submissions by calling the available read-only tools.
 
