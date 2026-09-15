@@ -91,10 +91,56 @@ export default function SocialEditor() {
   const [msg, setMsg] = useState<Msg>(null)
   const [drafts, setDrafts] = useState<any[]>([])
 
-  useEffect(() => { loadChannels(); loadQueue(); loadLibrary(); loadModels(); setDrafts(readDrafts()) }, [])
+  // Auto-drip state
+  const [drip, setDrip] = useState<{ enabled: boolean; tone: string; unusedCount: number; totalCount: number; lastDripAt: string | null }>({ enabled: true, tone: TONES[0], unusedCount: 0, totalCount: 0, lastDripAt: null })
+  const [dripRunning, setDripRunning] = useState(false)
 
-  // Which Groq models this account can use, so a retired model is a dropdown
-  // change instead of a code change. Remembers the admin's pick.
+  useEffect(() => { loadChannels(); loadQueue(); loadLibrary(); loadModels(); loadDrip(); setDrafts(readDrafts()) }, [])
+
+  async function loadDrip() {
+    try {
+      const r = await fetch("/api/admin/social/drip")
+      const d = await r.json()
+      if (r.ok) setDrip(d)
+    } catch { /* ignore */ }
+  }
+
+  async function toggleDrip(enabled: boolean) {
+    try {
+      await fetch("/api/admin/social/drip", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      })
+      setDrip((d) => ({ ...d, enabled }))
+    } catch { setMsg({ type: "error", text: "Could not update auto-post setting." }) }
+  }
+
+  async function updateDripTone(tone: string) {
+    try {
+      await fetch("/api/admin/social/drip", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tone }),
+      })
+      setDrip((d) => ({ ...d, tone }))
+    } catch { /* ignore */ }
+  }
+
+  async function runDripNow() {
+    setDripRunning(true); setMsg(null)
+    try {
+      const r = await fetch("/api/admin/social/drip", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "run" }),
+      })
+      const d = await r.json()
+      if (d.ok) {
+        setMsg({ type: "success", text: d.posted ? `Auto-posted ${d.posted} items from library image.` : (d.skipped || "Nothing to post.") })
+        loadDrip(); loadQueue(); loadLibrary()
+      } else setMsg({ type: "error", text: d.error || "Auto-post failed." })
+    } catch { setMsg({ type: "error", text: "Auto-post failed." }) }
+    finally { setDripRunning(false) }
+  }
+
   async function loadModels() {
     try {
       const r = await fetch("/api/admin/social/models")
@@ -359,6 +405,39 @@ export default function SocialEditor() {
       )}
       {msg && <Banner type={msg.type} text={msg.text} />}
 
+      {/* Auto-drip settings */}
+      <div className="mb-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-purple-100 text-purple-700"><CalendarClock className="h-4 w-4" /></span>
+            <div>
+              <h2 className="text-sm font-semibold text-gray-800">Daily Auto-Post</h2>
+              <p className="text-xs text-gray-500">Posts 1 image daily from your library to all connected channels</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={drip.enabled} onChange={(e) => toggleDrip(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" />
+              <span className={drip.enabled ? "font-medium text-emerald-700" : "text-gray-500"}>{drip.enabled ? "Enabled" : "Disabled"}</span>
+            </label>
+            <select value={drip.tone} onChange={(e) => updateDripTone(e.target.value)}
+              className="rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500">
+              {TONES.map((t) => <option key={t}>{t}</option>)}
+            </select>
+            <button onClick={runDripNow} disabled={dripRunning}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-60">
+              {dripRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Run now
+            </button>
+          </div>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-4 text-xs text-gray-500">
+          <span>{drip.unusedCount} unused image{drip.unusedCount !== 1 ? "s" : ""} remaining</span>
+          {drip.lastDripAt && <span>Last auto-post: {new Date(drip.lastDripAt).toLocaleDateString()}</span>}
+          {drip.unusedCount === 0 && drip.totalCount > 0 && <span className="text-amber-600">All images used — upload more to continue auto-posting</span>}
+        </div>
+      </div>
+
       {/* Compose */}
       <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-end gap-3">
@@ -457,19 +536,19 @@ export default function SocialEditor() {
               {library.length === 0 ? (
                 <p className="text-xs text-gray-400">No saved images yet. Upload one, or generate/find an image and click <span className="font-medium">Save</span>.</p>
               ) : (
-                <div className="flex gap-2 overflow-x-auto pb-1">
+                <div className="flex flex-wrap gap-3 pb-1">
                   {library.map((img) => (
                     <div key={img.id} className="group relative shrink-0">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={img.url} alt={img.filename || ""} onClick={() => { setImageUrl(img.url); setImageCredit(null) }}
-                        className={`h-16 w-16 cursor-pointer rounded-lg object-cover ring-2 ${imageUrl === img.url ? "ring-emerald-500" : "ring-transparent hover:ring-gray-300"}`} />
+                        className={`h-28 w-28 cursor-pointer rounded-lg object-cover ring-2 ${imageUrl === img.url ? "ring-emerald-500" : "ring-transparent hover:ring-gray-300"}`} />
                       <button onClick={() => setLightboxUrl(img.url)} title="View full image"
-                        className="absolute -left-1.5 -top-1.5 hidden rounded-full bg-white p-0.5 text-gray-600 shadow ring-1 ring-gray-200 group-hover:block">
-                        <ZoomIn className="h-3 w-3" />
+                        className="absolute -left-1.5 -top-1.5 hidden rounded-full bg-white p-1 text-gray-600 shadow ring-1 ring-gray-200 group-hover:block">
+                        <ZoomIn className="h-3.5 w-3.5" />
                       </button>
                       <button onClick={() => deleteLibraryImage(img.id)} title="Delete from library"
-                        className="absolute -right-1.5 -top-1.5 hidden rounded-full bg-white p-0.5 text-red-500 shadow ring-1 ring-gray-200 group-hover:block">
-                        <Trash2 className="h-3 w-3" />
+                        className="absolute -right-1.5 -top-1.5 hidden rounded-full bg-white p-1 text-red-500 shadow ring-1 ring-gray-200 group-hover:block">
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   ))}
