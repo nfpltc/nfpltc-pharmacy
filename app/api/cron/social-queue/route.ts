@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { processDue } from "@/lib/social/queue-runner"
 import { processEmailOutbox } from "@/lib/email-outbox-runner"
+import { runAutoDrip, type DripResult } from "@/lib/social/auto-drip"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -20,7 +21,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
   }
+
+  // Auto-drip: pick an unused image, generate captions, queue for all channels.
+  // Runs BEFORE processDue so the freshly-queued items get sent in the same pass.
+  let drip: DripResult = { ok: true, skipped: "not attempted" }
+  try {
+    drip = await runAutoDrip()
+  } catch (e: any) {
+    console.error("Auto-drip error:", e)
+    drip = { ok: false, error: e.message }
+  }
+
   const res = await processDue()
-  const mail = await processEmailOutbox()  // scheduled emails ride the same cron
-  return NextResponse.json({ ok: true, ...res, mail, at: new Date().toISOString() })
+  const mail = await processEmailOutbox()
+  return NextResponse.json({ ok: true, ...res, drip, mail, at: new Date().toISOString() })
 }
