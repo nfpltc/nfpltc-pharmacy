@@ -163,17 +163,17 @@ export default function ViewStatementsPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">First Name *</label>
-                <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="e.g. Krishna" className="h-12 w-full rounded-lg border border-gray-200 px-4 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="e.g. John" className="h-12 w-full rounded-lg border border-gray-200 px-4 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Last Name *</label>
-                <input type="text" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="e.g. Amarneni" className="h-12 w-full rounded-lg border border-gray-200 px-4 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                <input type="text" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="e.g. Smith" className="h-12 w-full rounded-lg border border-gray-200 px-4 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Account Number *</label>
-                <input type="text" value={account} onChange={e => setAccount(e.target.value)} placeholder="e.g. 123465" className="h-12 w-full rounded-lg border border-gray-200 px-4 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
+                <input type="text" value={account} onChange={e => setAccount(e.target.value)} placeholder="e.g. 101001100" className="h-12 w-full rounded-lg border border-gray-200 px-4 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500" />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">Billing Month</label>
