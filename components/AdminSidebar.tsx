@@ -23,6 +23,7 @@ const NAV = [
   { href: "/admin/mail",             label: "Email",            icon: Mail,            key: "mail" },
   { href: "/admin/medication-tasks", label: "Medication Tasks", icon: Pill,            key: "medication-tasks" },
   { href: "/admin/inventory",        label: "Inventory",        icon: Package,         key: "inventory" },
+  { href: "/admin/portal-requests",  label: "Portal Requests",  icon: UserCheck,       key: "portal-requests" },
   { href: "/admin/settings",         label: "Settings",         icon: Settings,        key: "settings" },
 ]
 
